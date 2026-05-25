@@ -25,10 +25,11 @@ ax  = Axis(fig[1, 1],
     title=spec.title
 )
 
-lines!(spec.x, spec.y)
+lines!(ax, spec.x, spec.y; color=(:gray, 0.7), label="raw")
 lines!(ax, spec.x, y_corr; color=:crimson,    label="corrected")
 scatter!(ax, [p.position for p in peaks], [p.intensity for p in peaks];
          color=:black, marker=:dtriangle, markersize=10, label="peaks")
 axislegend(ax; position=:rt)
 
+save(joinpath(@__DIR__, "raman_correction.png"), fig)
 fig
