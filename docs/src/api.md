@@ -5,7 +5,7 @@ This page collects exported names that aren't covered by the grouped reference p
 ## Module
 
 ```@docs
-SpectroscopyTools.SpectroscopyTools
+OpticalSpectroscopy.OpticalSpectroscopy
 ```
 
 ## Transient Absorption Types

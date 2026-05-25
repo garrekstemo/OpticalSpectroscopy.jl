@@ -14,7 +14,7 @@ When auto-detection fails or the fit converges to a wrong solution, supply your 
 Set up example data to work with:
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CurveFitModels
 
 x = collect(range(1950, 2150, length=600))

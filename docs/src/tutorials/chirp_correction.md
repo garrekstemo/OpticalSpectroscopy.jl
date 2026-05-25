@@ -21,7 +21,7 @@ These all follow the same two-stage logic: first measure the wavelength-dependen
 
 #### Coherent artifact / cross-phase modulation (XPM) detection
 
-The most common approach. The sharp, non-resonant coherent artifact that appears around time zero in TA data is wavelength-dependent due to chirp. You find the time-zero position at each wavelength, then fit a smooth function to the resulting chirp curve. This is what SpectroscopyTools implements.
+The most common approach. The sharp, non-resonant coherent artifact that appears around time zero in TA data is wavelength-dependent due to chirp. You find the time-zero position at each wavelength, then fit a smooth function to the resulting chirp curve. This is what OpticalSpectroscopy implements.
 
 Several strategies exist for locating time zero at each wavelength:
 
@@ -29,7 +29,7 @@ Several strategies exist for locating time zero at each wavelength:
 - **Steepest slope (maximum of ``d\Delta A/dt``):** Take the numerical derivative and find its extremum. This targets the *rising edge* of the signal rather than the peak, making it less sensitive to overlapping dynamics. Probably the most widely used variant.
 - **Half-rise point:** Find where each trace crosses 50% of its early-time extremum. Less sensitive to noise than the derivative method, but assumes a monotonic rise.
 - **Fit a step function convolved with a Gaussian:** At each wavelength, fit ``A \cdot \text{erfc}((t - t_0) / \sigma) + \text{offset}``. This gives ``t_0`` and the instrument response width ``\sigma`` simultaneously. Most rigorous, but slow when applied at every wavelength.
-- **Cross-correlation of onset gradients:** Cross-correlate the absolute gradient of each wavelength bin against a reference bin (the one with the strongest signal). Since the absolute gradient produces a spike at the onset regardless of whether the signal is positive (GSB) or negative (ESA), this is polarity-independent. Parabolic interpolation on the cross-correlation peak gives sub-time-step precision. This is the default `:xcorr` method in SpectroscopyTools.
+- **Cross-correlation of onset gradients:** Cross-correlate the absolute gradient of each wavelength bin against a reference bin (the one with the strongest signal). Since the absolute gradient produces a spike at the onset regardless of whether the signal is positive (GSB) or negative (ESA), this is polarity-independent. Parabolic interpolation on the cross-correlation peak gives sub-time-step precision. This is the default `:xcorr` method in OpticalSpectroscopy.
 
 #### Optical Kerr effect (OKE) reference measurement
 
@@ -71,7 +71,7 @@ This section walks through the standard workflow in detail.
 TA is already a difference measurement, so the signal before the pump arrives should be zero. Any residual offset is systematic background (detector dark current, scattered pump light, etc.). Subtracting it improves chirp detection by removing a constant bias.
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 
 matrix_bg = subtract_background(matrix)
 ```
@@ -80,7 +80,7 @@ matrix_bg = subtract_background(matrix)
 
 ### Step 2: Detect the chirp curve
 
-SpectroscopyTools provides two detection methods. Both bin the wavelength axis for noise reduction, smooth each bin with a Savitzky-Golay filter, then locate the signal onset.
+OpticalSpectroscopy provides two detection methods. Both bin the wavelength axis for noise reduction, smooth each bin with a Savitzky-Golay filter, then locate the signal onset.
 
 ```julia
 cal = detect_chirp(matrix_bg)
@@ -158,7 +158,7 @@ The JSON file stores the polynomial coefficients, detected points, and all detec
 ## Common pitfalls
 
 **Using too narrow a time window for detection.**
-If the detection window doesn't capture the full signal rise at all wavelengths (because of the chirp itself), edge wavelengths get incorrect ``t_0`` values. The auto-detection in SpectroscopyTools accounts for this, but if you set `t_range` manually, make it generous.
+If the detection window doesn't capture the full signal rise at all wavelengths (because of the chirp itself), edge wavelengths get incorrect ``t_0`` values. The auto-detection in OpticalSpectroscopy accounts for this, but if you set `t_range` manually, make it generous.
 
 **Getting the sign convention wrong.**
 Does ``t_0 > 0`` mean the blue arrives early or late? Getting this backwards flips the correction and doubles the chirp instead of removing it. In normal materials, the blue arrives later (positive GVD). After correction, check that the surface looks *less* curved, not more.
@@ -167,7 +167,7 @@ Does ``t_0 > 0`` mean the blue arrives early or late? Getting this backwards fli
 If the acquisition software already applies a partial chirp correction, applying a second correction on top will overcorrect. Check the raw data before starting.
 
 **Overfitting the polynomial.**
-The chirp curve should be smooth. Any high-frequency structure in ``t_0(\lambda)`` is noise. Use the minimum polynomial order that captures the curvature --- 2nd or 3rd order is almost always sufficient. SpectroscopyTools uses MAD-based outlier rejection to guard against this, but inspecting the residuals is still good practice.
+The chirp curve should be smooth. Any high-frequency structure in ``t_0(\lambda)`` is noise. Use the minimum polynomial order that captures the curvature --- 2nd or 3rd order is almost always sufficient. OpticalSpectroscopy uses MAD-based outlier rejection to guard against this, but inspecting the residuals is still good practice.
 
 **Ignoring the wavelength-dependent IRF.**
 GVD doesn't just shift time zero --- it also temporally broadens the probe pulse at wavelengths far from the continuum center. The correction procedure above fixes the shift but not the broadening. For the most accurate kinetics, you may need a wavelength-dependent instrument response function in your fitting model.
@@ -175,7 +175,7 @@ GVD doesn't just shift time zero --- it also temporally broadens the probe pulse
 ## Full example
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 
 # Assume `matrix` is a TAMatrix loaded from your data
 # Step 1: Background subtraction

@@ -1,5 +1,5 @@
 using Test
-using SpectroscopyTools
+using OpticalSpectroscopy
 using Unitful
 using Statistics
 using LinearAlgebra: rank
@@ -8,10 +8,10 @@ using Aqua
 import Random
 Random.seed!(42)
 
-@testset "SpectroscopyTools.jl" begin
+@testset "OpticalSpectroscopy.jl" begin
 
     @testset "Code quality (Aqua.jl)" begin
-        Aqua.test_all(SpectroscopyTools;
+        Aqua.test_all(OpticalSpectroscopy;
             deps_compat=(check_extras=false, ignore=[:LinearAlgebra, :SparseArrays, :Statistics],),
             persistent_tasks=false)
     end
@@ -303,7 +303,7 @@ Random.seed!(42)
         offset_true = 0.02
 
         # Use the internal IRF convolution to generate test data
-        signal = [SpectroscopyTools._exp_decay_irf_conv(ti, A_true, tau_true, 0.0, sigma_true) + offset_true
+        signal = [OpticalSpectroscopy._exp_decay_irf_conv(ti, A_true, tau_true, 0.0, sigma_true) + offset_true
                   for ti in t]
         # Add small noise
         signal .+= 0.001 .* randn(length(signal))
@@ -343,8 +343,8 @@ Random.seed!(42)
         A2_true = 0.6
         sigma_true = 0.3
 
-        signal = [SpectroscopyTools._exp_decay_irf_conv(ti, A1_true, tau1_true, 0.0, sigma_true) +
-                  SpectroscopyTools._exp_decay_irf_conv(ti, A2_true, tau2_true, 0.0, sigma_true) + 0.01
+        signal = [OpticalSpectroscopy._exp_decay_irf_conv(ti, A1_true, tau1_true, 0.0, sigma_true) +
+                  OpticalSpectroscopy._exp_decay_irf_conv(ti, A2_true, tau2_true, 0.0, sigma_true) + 0.01
                   for ti in t]
         signal .+= 0.002 .* randn(length(signal))
 
@@ -360,8 +360,8 @@ Random.seed!(42)
 
     @testset "Multi-exponential fitting (n_exp parameter)" begin
         t = collect(-2.0:0.1:50.0)
-        signal = [SpectroscopyTools._exp_decay_irf_conv(ti, 0.5, 3.0, 0.0, 0.3) +
-                  SpectroscopyTools._exp_decay_irf_conv(ti, 0.3, 15.0, 0.0, 0.3) + 0.01
+        signal = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.5, 3.0, 0.0, 0.3) +
+                  OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.3, 15.0, 0.0, 0.3) + 0.01
                   for ti in t]
         signal .+= 0.002 .* randn(length(signal))
 
@@ -370,14 +370,14 @@ Random.seed!(42)
         # n_exp=2
         result2 = fit_exp_decay(trace; n_exp=2, irf=true, irf_width=0.2)
         @test result2 isa MultiexpDecayFit
-        @test SpectroscopyTools.n_exp(result2) == 2
+        @test OpticalSpectroscopy.n_exp(result2) == 2
         @test length(result2.taus) == 2
         @test length(result2.amplitudes) == 2
         @test all(result2.taus .> 0)
         @test result2.taus[1] <= result2.taus[2]
         @test result2.rsquared > 0.95
 
-        w = SpectroscopyTools.weights(result2)
+        w = OpticalSpectroscopy.weights(result2)
         @test length(w) == 2
         @test sum(w) ≈ 1.0 atol=1e-10
 
@@ -392,9 +392,9 @@ Random.seed!(42)
         tau_true = 5.0
         sigma_true = 0.3
 
-        signal_esa = [SpectroscopyTools._exp_decay_irf_conv(ti, 0.8, tau_true, 0.0, sigma_true) + 0.01
+        signal_esa = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.8, tau_true, 0.0, sigma_true) + 0.01
                       for ti in t]
-        signal_gsb = [SpectroscopyTools._exp_decay_irf_conv(ti, -0.5, tau_true, 0.0, sigma_true) - 0.005
+        signal_gsb = [OpticalSpectroscopy._exp_decay_irf_conv(ti, -0.5, tau_true, 0.0, sigma_true) - 0.005
                       for ti in t]
 
         trace_esa = TATrace(t, signal_esa)
@@ -410,7 +410,7 @@ Random.seed!(42)
         @test result.labels == ["ESA", "GSB"]
         @test result.rsquared > 0.95
         @test isnothing(result.wavelengths)
-        @test SpectroscopyTools.n_exp(result) == 1
+        @test OpticalSpectroscopy.n_exp(result) == 1
 
         # predict
         curves = predict(result, [trace_esa, trace_gsb])
@@ -425,12 +425,12 @@ Random.seed!(42)
         sigma_true = 0.3
 
         # Trace 1: both components positive (ESA-like)
-        signal1 = [SpectroscopyTools._exp_decay_irf_conv(ti, 0.6, tau1_true, 0.0, sigma_true) +
-                   SpectroscopyTools._exp_decay_irf_conv(ti, 0.4, tau2_true, 0.0, sigma_true) + 0.01
+        signal1 = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.6, tau1_true, 0.0, sigma_true) +
+                   OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.4, tau2_true, 0.0, sigma_true) + 0.01
                    for ti in t]
         # Trace 2: both components negative (GSB-like)
-        signal2 = [SpectroscopyTools._exp_decay_irf_conv(ti, -0.3, tau1_true, 0.0, sigma_true) +
-                   SpectroscopyTools._exp_decay_irf_conv(ti, -0.5, tau2_true, 0.0, sigma_true) - 0.005
+        signal2 = [OpticalSpectroscopy._exp_decay_irf_conv(ti, -0.3, tau1_true, 0.0, sigma_true) +
+                   OpticalSpectroscopy._exp_decay_irf_conv(ti, -0.5, tau2_true, 0.0, sigma_true) - 0.005
                    for ti in t]
 
         trace1 = TATrace(t, signal1)
@@ -445,7 +445,7 @@ Random.seed!(42)
         @test result.taus[2] ≈ tau2_true atol=5.0
         @test size(result.amplitudes) == (2, 2)
         @test result.rsquared > 0.95
-        @test SpectroscopyTools.n_exp(result) == 2
+        @test OpticalSpectroscopy.n_exp(result) == 2
     end
 
     @testset "Global fitting - TAMatrix dispatch" begin
@@ -458,7 +458,7 @@ Random.seed!(42)
         for (j, wl) in enumerate(wavelength)
             amp = 0.5 * sin((wl - 500) / 200 * pi)
             for (i, ti) in enumerate(t)
-                data[i, j] = SpectroscopyTools._exp_decay_irf_conv(ti, amp, tau_true, 0.0, sigma_true) + 0.01
+                data[i, j] = OpticalSpectroscopy._exp_decay_irf_conv(ti, amp, tau_true, 0.0, sigma_true) + 0.01
             end
         end
 
@@ -490,7 +490,7 @@ Random.seed!(42)
 
     @testset "predict - ExpDecayFit" begin
         t = collect(-2.0:0.1:30.0)
-        signal = [SpectroscopyTools._exp_decay_irf_conv(ti, 1.0, 5.0, 0.0, 0.3) + 0.01
+        signal = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 1.0, 5.0, 0.0, 0.3) + 0.01
                   for ti in t]
 
         trace = TATrace(t, signal)
@@ -507,8 +507,8 @@ Random.seed!(42)
 
     @testset "predict - MultiexpDecayFit (n_exp=2)" begin
         t = collect(-2.0:0.1:30.0)
-        signal = [SpectroscopyTools._exp_decay_irf_conv(ti, 0.5, 2.0, 0.0, 0.3) +
-                  SpectroscopyTools._exp_decay_irf_conv(ti, 0.5, 15.0, 0.0, 0.3) + 0.01
+        signal = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.5, 2.0, 0.0, 0.3) +
+                  OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.5, 15.0, 0.0, 0.3) + 0.01
                   for ti in t]
 
         trace = TATrace(t, signal)
@@ -628,9 +628,9 @@ Random.seed!(42)
 
     @testset "Spectroscopy utilities - time_index" begin
         times = [0.0, 1.0, 2.0, 5.0, 10.0]
-        @test SpectroscopyTools.time_index(times, 2.1) == 3
-        @test SpectroscopyTools.time_index(times, 0.0) == 1
-        @test SpectroscopyTools.time_index(times, 7.0) == 4
+        @test OpticalSpectroscopy.time_index(times, 2.1) == 3
+        @test OpticalSpectroscopy.time_index(times, 0.0) == 1
+        @test OpticalSpectroscopy.time_index(times, 7.0) == 4
     end
 
     @testset "Spectroscopy utilities - transmittance/absorbance" begin
@@ -853,7 +853,7 @@ Random.seed!(42)
             [0.452, 2062.3, 24.7, 0.01], lorentzian, 3,
             collect(2000.0:1.0:2099.0), zeros(100)
         )
-        md = SpectroscopyTools.format_results(result)
+        md = OpticalSpectroscopy.format_results(result)
         @test occursin("Peak Fit Results", md)
         @test occursin("2062.3", md)
         @test occursin("24.7", md)
@@ -866,7 +866,7 @@ Random.seed!(42)
 
     @testset "format_results - ExpDecayFit" begin
         result = ExpDecayFit(0.5, 8.3, 0.1, 0.25, 0.01, :esa, zeros(10), 0.9923)
-        md = SpectroscopyTools.format_results(result)
+        md = OpticalSpectroscopy.format_results(result)
         @test occursin("Exponential Decay Fit", md)
         @test occursin("ESA", md)
         @test occursin("8.3", md)
@@ -879,7 +879,7 @@ Random.seed!(42)
             [0.5, 5.0, 50.0], [0.3, 0.4, 0.1],
             0.1, 0.25, 0.01, :esa, zeros(10), 0.9991
         )
-        md = SpectroscopyTools.format_results(result)
+        md = OpticalSpectroscopy.format_results(result)
         @test occursin("Multi-exponential Decay Fit", md)
         @test occursin("3 components", md)
         @test occursin("0.5", md)
@@ -897,7 +897,7 @@ Random.seed!(42)
             [0.9950, 0.9940],
             [zeros(10), zeros(10)]
         )
-        md = SpectroscopyTools.format_results(result)
+        md = OpticalSpectroscopy.format_results(result)
         @test occursin("Global Fit Results", md)
         @test occursin("2 traces", md)
         @test occursin("8.5", md)
@@ -910,10 +910,10 @@ Random.seed!(42)
 
     @testset "irf_fwhm and pulse_fwhm" begin
         sigma = 0.3
-        fwhm = SpectroscopyTools.irf_fwhm(sigma)
+        fwhm = OpticalSpectroscopy.irf_fwhm(sigma)
         @test fwhm ≈ 2 * sqrt(2 * log(2)) * sigma rtol=1e-10
 
-        pfwhm = SpectroscopyTools.pulse_fwhm(sigma)
+        pfwhm = OpticalSpectroscopy.pulse_fwhm(sigma)
         @test pfwhm ≈ fwhm / sqrt(2) rtol=1e-10
     end
 
@@ -947,17 +947,17 @@ Random.seed!(42)
 
     @testset "Re-exports from CurveFit" begin
         # These should be accessible
-        @test isdefined(SpectroscopyTools, :solve)
-        @test isdefined(SpectroscopyTools, :NonlinearCurveFitProblem)
-        @test isdefined(SpectroscopyTools, :coef)
-        @test isdefined(SpectroscopyTools, :stderror)
+        @test isdefined(OpticalSpectroscopy, :solve)
+        @test isdefined(OpticalSpectroscopy, :NonlinearCurveFitProblem)
+        @test isdefined(OpticalSpectroscopy, :coef)
+        @test isdefined(OpticalSpectroscopy, :stderror)
     end
 
     @testset "Re-exports from CurveFitModels" begin
-        @test isdefined(SpectroscopyTools, :gaussian)
-        @test isdefined(SpectroscopyTools, :lorentzian)
-        @test isdefined(SpectroscopyTools, :single_exponential)
-        @test isdefined(SpectroscopyTools, :pseudo_voigt)
+        @test isdefined(OpticalSpectroscopy, :gaussian)
+        @test isdefined(OpticalSpectroscopy, :lorentzian)
+        @test isdefined(OpticalSpectroscopy, :single_exponential)
+        @test isdefined(OpticalSpectroscopy, :pseudo_voigt)
     end
 
     @testset "Chirp correction" begin
@@ -1119,13 +1119,13 @@ Random.seed!(42)
         end
 
         @testset "Chirp exports available" begin
-            @test isdefined(SpectroscopyTools, :ChirpCalibration)
-            @test isdefined(SpectroscopyTools, :detect_chirp)
-            @test isdefined(SpectroscopyTools, :correct_chirp)
-            @test isdefined(SpectroscopyTools, :subtract_background)
-            @test isdefined(SpectroscopyTools, :save_chirp)
-            @test isdefined(SpectroscopyTools, :load_chirp)
-            @test isdefined(SpectroscopyTools, :polynomial)
+            @test isdefined(OpticalSpectroscopy, :ChirpCalibration)
+            @test isdefined(OpticalSpectroscopy, :detect_chirp)
+            @test isdefined(OpticalSpectroscopy, :correct_chirp)
+            @test isdefined(OpticalSpectroscopy, :subtract_background)
+            @test isdefined(OpticalSpectroscopy, :save_chirp)
+            @test isdefined(OpticalSpectroscopy, :load_chirp)
+            @test isdefined(OpticalSpectroscopy, :polynomial)
         end
 
         @testset "subtract_background with flat matrix" begin
@@ -2180,21 +2180,21 @@ Random.seed!(42)
     @testset "Internal polynomial utilities" begin
         @testset "_polyeval scalar — Horner's method" begin
             # Linear: 2 + 3x at x=4 -> 14
-            @test SpectroscopyTools._polyeval([2.0, 3.0], 4.0) ≈ 14.0
+            @test OpticalSpectroscopy._polyeval([2.0, 3.0], 4.0) ≈ 14.0
             # Quadratic: 1 + 0.5x + 0.01x^2 at x=10 -> 1 + 5 + 1 = 7
-            @test SpectroscopyTools._polyeval([1.0, 0.5, 0.01], 10.0) ≈ 7.0
+            @test OpticalSpectroscopy._polyeval([1.0, 0.5, 0.01], 10.0) ≈ 7.0
             # Constant polynomial
-            @test SpectroscopyTools._polyeval([42.0], 999.0) ≈ 42.0
+            @test OpticalSpectroscopy._polyeval([42.0], 999.0) ≈ 42.0
             # Zero polynomial
-            @test SpectroscopyTools._polyeval([0.0, 0.0, 0.0], 5.0) ≈ 0.0
+            @test OpticalSpectroscopy._polyeval([0.0, 0.0, 0.0], 5.0) ≈ 0.0
             # Higher order: 1 + x + x^2 + x^3 + x^4 at x=2 -> 1+2+4+8+16 = 31
-            @test SpectroscopyTools._polyeval([1.0, 1.0, 1.0, 1.0, 1.0], 2.0) ≈ 31.0
+            @test OpticalSpectroscopy._polyeval([1.0, 1.0, 1.0, 1.0, 1.0], 2.0) ≈ 31.0
         end
 
         @testset "_polyeval vector — element-wise" begin
             coeffs = [2.0, 3.0]  # 2 + 3x
             xs = [0.0, 1.0, 2.0, 10.0]
-            result = SpectroscopyTools._polyeval(coeffs, xs)
+            result = OpticalSpectroscopy._polyeval(coeffs, xs)
             @test result ≈ [2.0, 5.0, 8.0, 32.0]
         end
 
@@ -2202,13 +2202,13 @@ Random.seed!(42)
             # Exact quadratic: y = 2 + x + 0.5x^2
             x = collect(range(0.0, 4.0, length=20))
             y = @. 2.0 + x + 0.5 * x^2
-            coeffs = SpectroscopyTools._polyfit(x, y, 2)
+            coeffs = OpticalSpectroscopy._polyfit(x, y, 2)
             @test coeffs ≈ [2.0, 1.0, 0.5] atol=1e-10
 
             # Exact cubic
             x2 = collect(range(-2.0, 2.0, length=30))
             y2 = @. 1.0 - 0.5 * x2 + 0.1 * x2^2 + 0.05 * x2^3
-            coeffs2 = SpectroscopyTools._polyfit(x2, y2, 3)
+            coeffs2 = OpticalSpectroscopy._polyfit(x2, y2, 3)
             @test coeffs2 ≈ [1.0, -0.5, 0.1, 0.05] atol=1e-10
         end
 
@@ -2217,8 +2217,8 @@ Random.seed!(42)
             x = collect(range(-1.0, 1.0, length=50))
             true_coeffs = [3.0, -1.0, 2.0]
             y = @. true_coeffs[1] + true_coeffs[2] * x + true_coeffs[3] * x^2
-            fit_coeffs = SpectroscopyTools._polyfit(x, y, 2)
-            y_eval = SpectroscopyTools._polyeval(fit_coeffs, x)
+            fit_coeffs = OpticalSpectroscopy._polyfit(x, y, 2)
+            y_eval = OpticalSpectroscopy._polyeval(fit_coeffs, x)
             @test y_eval ≈ y atol=1e-10
         end
     end

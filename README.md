@@ -1,14 +1,16 @@
-# SpectroscopyTools.jl
+# OpticalSpectroscopy.jl
 
-[![CI](https://github.com/garrekstemo/SpectroscopyTools.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/garrekstemo/SpectroscopyTools.jl/actions/workflows/CI.yml)
-[![](https://img.shields.io/badge/docs-stable-blue.svg)](https://garrekstemo.github.io/SpectroscopyTools.jl/stable/)
-[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://garrekstemo.github.io/SpectroscopyTools.jl/dev/)
+[![CI](https://github.com/garrekstemo/OpticalSpectroscopy.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/garrekstemo/OpticalSpectroscopy.jl/actions/workflows/CI.yml)
+[![](https://img.shields.io/badge/docs-stable-blue.svg)](https://garrekstemo.github.io/OpticalSpectroscopy.jl/stable/)
+[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://garrekstemo.github.io/OpticalSpectroscopy.jl/dev/)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
-[![codecov](https://codecov.io/gh/garrekstemo/SpectroscopyTools.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/garrekstemo/SpectroscopyTools.jl)
+[![codecov](https://codecov.io/gh/garrekstemo/OpticalSpectroscopy.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/garrekstemo/OpticalSpectroscopy.jl)
 
-**Spectroscopy analysis for Julia — steady-state and ultrafast.**
+**Integrated tools for optical spectroscopy in Julia — UV-Vis, FTIR, Raman, photoluminescence, and femtosecond transient absorption.**
 
-For steady-state work, SpectroscopyTools provides peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`TATrace`, `TASpectrum`, `TAMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
+OpticalSpectroscopy.jl combines typed data structures (`TATrace`, `TASpectrum`, `TAMatrix`, `PLMap`) with peak fitting (Gaussian, Lorentzian, Voigt, Pseudo-Voigt, Fano), baseline correction (arPLS, SNIP, rubber band, iModPoly, rolling ball), peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), unit conversions, and ultrafast-specific tools including IRF-convolved exponential fitting, global analysis with decay-associated spectra, and chirp correction for broadband pump-probe data.
+
+The core primitives — peak fitting, baseline correction, smoothing, unit conversions — work on any 1D spectrum-like data and are usable across spectroscopic domains as needed.
 
 > **Note:** This package is currently being tested internally in our lab.
 
@@ -16,13 +18,13 @@ For steady-state work, SpectroscopyTools provides peak fitting (Gaussian, Lorent
 
 ```julia
 using Pkg
-Pkg.add("SpectroscopyTools")
+Pkg.add("OpticalSpectroscopy")
 ```
 
 ## Quick Start
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 
 # --- Ultrafast: kinetics with IRF-convolved biexponential ---
 trace = TATrace(time, signal; wavelength=800.0)
@@ -67,7 +69,7 @@ decay_time_to_linewidth(1.0u"ps")
 
 ## Data Types
 
-SpectroscopyTools provides typed containers for spectroscopy data:
+OpticalSpectroscopy provides typed containers for spectroscopy data:
 
 ```julia
 # Kinetics at a single wavelength
@@ -82,6 +84,19 @@ matrix[λ=800]   # -> TATrace at nearest wavelength
 matrix[t=1.0]   # -> TASpectrum at nearest time delay
 ```
 
+## Scope
+
+OpticalSpectroscopy.jl targets photon-based spectroscopy of condensed matter and molecular systems. It does not cover magnetic resonance (NMR, EPR), X-ray (XRD, XPS, XAS), mass spectrometry, atomic/plasma spectroscopy, astronomical spectroscopy, or attosecond spectroscopy — those fields have different data conventions and analysis traditions.
+
+The shared algorithmic primitives — peak fitting, baseline correction, smoothing — operate on any 1D signal data and can be used across domains as needed.
+
+## Related packages
+
+- [Spectra.jl](https://github.com/charlesll/Spectra.jl) — Raman preprocessing and fitting with Raman-specific temperature/laser corrections (Long, Galeener, Hehlen) and diamond anvil cell utilities. OpticalSpectroscopy.jl does not implement these; users needing them can use both packages together.
+- [Peaks.jl](https://github.com/halleysfifthinc/Peaks.jl) — Lower-level peak detection primitives (used internally).
+- [CurveFit.jl](https://github.com/garrekstemo/CurveFit.jl) — Nonlinear fitting backend (used internally).
+- [CurveFitModels.jl](https://github.com/garrekstemo/CurveFitModels.jl) — Lineshape model functions (used internally).
+
 ## Dependencies
 
-SpectroscopyTools uses [CurveFit.jl](https://github.com/garrekstemo/CurveFit.jl) as the nonlinear fitting backend and [CurveFitModels.jl](https://github.com/garrekstemo/CurveFitModels.jl) for model functions. Unit conversions use [Unitful.jl](https://github.com/PainterQubits/Unitful.jl).
+OpticalSpectroscopy uses [CurveFit.jl](https://github.com/garrekstemo/CurveFit.jl) as the nonlinear fitting backend and [CurveFitModels.jl](https://github.com/garrekstemo/CurveFitModels.jl) for model functions. Unit conversions use [Unitful.jl](https://github.com/PainterQubits/Unitful.jl).

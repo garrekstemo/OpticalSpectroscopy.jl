@@ -7,7 +7,7 @@ We simulate an FTIR absorbance spectrum inline so the workflow is fully reproduc
 ## Prerequisites
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CurveFitModels  # for `lorentzian`, `gaussian` models
 using CairoMakie
 using Random

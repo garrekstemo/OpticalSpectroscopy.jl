@@ -9,7 +9,7 @@ Assuming you have a `PLMap` (load one from your preferred file loader, or constr
 ## Prerequisites
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CairoMakie
 using Statistics
 using Random
@@ -231,7 +231,7 @@ save("figures/pl_comparison.pdf", fig)
 
 CCD detectors occasionally register high-energy particle hits as sharp, narrow spikes in individual spectra. These "cosmic rays" affect a single spatial pixel at a random spectral channel and don't correlate with spatial neighbors. They distort integrated intensity, shift peak center calculations, and can cause fitting failures.
 
-SpectroscopyTools uses modified z-scores on first differences (Whitaker–Hayes method) for detection. For `PLMap` data, spatial validation prevents real spectral features (shared across neighbors) from being falsely flagged.
+OpticalSpectroscopy uses modified z-scores on first differences (Whitaker–Hayes method) for detection. For `PLMap` data, spatial validation prevents real spectral features (shared across neighbors) from being falsely flagged.
 
 ### Detect and inspect
 

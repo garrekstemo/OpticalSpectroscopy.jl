@@ -1,20 +1,20 @@
-# SpectroscopyTools.jl
+# OpticalSpectroscopy.jl
 
 **Spectroscopy analysis for Julia — steady-state and ultrafast.**
 
-For steady-state work, SpectroscopyTools provides peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`TATrace`, `TASpectrum`, `TAMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
+For steady-state work, OpticalSpectroscopy provides peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`TATrace`, `TASpectrum`, `TAMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
 
 ## Installation
 
 ```julia
 using Pkg
-Pkg.add("SpectroscopyTools")
+Pkg.add("OpticalSpectroscopy")
 ```
 
 ## Quick Start
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CurveFitModels  # for lineshape functions
 using Unitful
 
@@ -91,4 +91,4 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 
 - [CurveFitModels.jl](https://garrekstemo.github.io/CurveFitModels.jl/stable/) — lineshape and temporal model functions used for fitting
 - [CurveFit.jl](https://github.com/garrekstemo/CurveFit.jl) — the nonlinear least-squares solver
-- [QPSTools.jl](https://github.com/garrekstemo/QPSTools.jl) — lab-specific loaders, plotting themes, and eLabFTW integration built on top of SpectroscopyTools
+- [QPSTools.jl](https://github.com/garrekstemo/QPSTools.jl) — lab-specific loaders, plotting themes, and eLabFTW integration built on top of OpticalSpectroscopy
