@@ -30,6 +30,9 @@ struct PLMap <: AbstractSpectroscopyData
     metadata::Dict{String,Any}
 end
 
+PLMap(intensity, spectra, x, y, pixel) =
+    PLMap(intensity, spectra, x, y, pixel, Dict{String,Any}())
+
 # =============================================================================
 # AbstractSpectroscopyData interface
 # =============================================================================
