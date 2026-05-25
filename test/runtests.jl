@@ -44,6 +44,28 @@ Random.seed!(42)
         @test is_matrix(spec) == false
     end
 
+    @testset "SweepData" begin
+        n_points, n_sweeps = 5, 3
+        X = reshape(collect(1.0:15.0), n_points, n_sweeps)
+        Y = reshape(collect(101.0:115.0), n_points, n_sweeps)
+        DC = zeros(n_points, n_sweeps)
+        sd = SweepData(X, Y, DC)
+
+        @test sd.X === X
+        @test sd.Y === Y
+        @test sd.DC === DC
+        @test size(sd.X) == (n_points, n_sweeps)
+
+        # NaN-tolerant: matches partial-sweep aborts
+        X_with_nan = copy(X); X_with_nan[end, end] = NaN
+        sd_nan = SweepData(X_with_nan, Y, DC)
+        @test isnan(sd_nan.X[end, end])
+
+        # SweepData is NOT a subtype of AbstractSpectroscopyData (it's raw lock-in
+        # output, not a finished spectroscopy product like TATrace).
+        @test !(SweepData <: AbstractSpectroscopyData)
+    end
+
     @testset "AbstractSpectroscopyData interface - TAMatrix" begin
         time = [0.0, 1.0, 2.0]
         wavelength = [800.0, 850.0, 900.0]

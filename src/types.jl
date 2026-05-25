@@ -146,6 +146,50 @@ function Base.show(io::IO, ::MIME"text/plain", t::TATrace)
 end
 
 """
+    SweepData(X, Y, DC)
+
+Per-sweep multi-channel lock-in detector data. Each matrix is
+`n_points × n_sweeps`. `NaN` marks an unmeasured point (e.g. from an
+aborted partial sweep). This is the un-averaged counterpart to
+[`TATrace`](@ref) — sweep-resolved raw output before collapsing across
+sweeps.
+
+# Fields
+- `X::Matrix{Float64}`: in-phase (signal) component per sweep
+- `Y::Matrix{Float64}`: quadrature component per sweep
+- `DC::Matrix{Float64}`: probe DC level per sweep (`0.0` if unavailable)
+
+# Examples
+
+```julia
+n_points, n_sweeps = 100, 10
+X  = zeros(n_points, n_sweeps)
+Y  = zeros(n_points, n_sweeps)
+DC = zeros(n_points, n_sweeps)
+sweeps = SweepData(X, Y, DC)
+```
+"""
+struct SweepData
+    X::Matrix{Float64}
+    Y::Matrix{Float64}
+    DC::Matrix{Float64}
+end
+
+function Base.show(io::IO, s::SweepData)
+    n_pts, n_sweeps = size(s.X)
+    print(io, "SweepData: $(n_pts) points × $(n_sweeps) sweeps")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", s::SweepData)
+    n_pts, n_sweeps = size(s.X)
+    n_nan = count(isnan, s.X)
+    println(io, "SweepData")
+    println(io, "  Points:  $n_pts")
+    println(io, "  Sweeps:  $n_sweeps")
+    println(io, "  NaN X:   $n_nan")
+end
+
+"""
     TASpectrum <: AbstractSpectroscopyData
 
 Transient absorption spectrum at a fixed time delay.
