@@ -11,7 +11,7 @@ The default settings detect too many peaks (noise spikes) or too few (real peaks
 Construct some example data with two Lorentzian peaks and noise:
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CurveFitModels
 
 x = collect(range(2000, 2150, length=600))

@@ -1,4 +1,4 @@
-# SpectroscopyTools.jl — TODO
+# OpticalSpectroscopy.jl — TODO
 
 ## 1. Improve chirp detection R² on real data
 
@@ -45,6 +45,6 @@ Implemented. `fit_global` now supports `n_exp` kwarg for multi-exponential globa
 - `Interpolations` and `JSON` are available at module level.
 - `LinearAlgebra` is available at module level (for SVD).
 - `Statistics: mean, median, std` are available at module level.
-- Run tests with: `cd SpectroscopyTools.jl && julia --project=. -e 'using Pkg; Pkg.test()'`
+- Run tests with: `cd OpticalSpectroscopy.jl && julia --project=. -e 'using Pkg; Pkg.test()'`
 - This is a public package — add `[compat]` entries for any new dependencies.
 - Follow existing docstring style (see `detect_chirp`, `correct_chirp` for examples).

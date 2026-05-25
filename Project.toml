@@ -1,4 +1,4 @@
-name = "SpectroscopyTools"
+name = "OpticalSpectroscopy"
 uuid = "f1436f7a-66ba-4269-a153-8996db8f0853"
 version = "0.1.0"
 authors = ["Garrek Stemo <8449000+garrekstemo@users.noreply.github.com>"]
@@ -20,7 +20,7 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [extensions]
-SpectroscopyToolsMakieExt = "Makie"
+OpticalSpectroscopyMakieExt = "Makie"
 
 [compat]
 Aqua = "0.8"

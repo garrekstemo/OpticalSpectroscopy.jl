@@ -11,7 +11,7 @@ A spectral region contains multiple peaks that are not fully resolved.
 Construct an example with two overlapping Lorentzians:
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CurveFitModels
 using CairoMakie
 

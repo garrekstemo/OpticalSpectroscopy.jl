@@ -1,6 +1,6 @@
 # Baseline Algorithms
 
-SpectroscopyTools.jl provides baseline correction algorithms that take different approaches and perform best in different situations. This page explains the tradeoffs to help you choose.
+OpticalSpectroscopy.jl provides baseline correction algorithms that take different approaches and perform best in different situations. This page explains the tradeoffs to help you choose.
 
 ## The Baseline Problem
 
@@ -43,7 +43,7 @@ arPLS is the **recommended default**. It improves on ALS by automatically determ
 
 ## ALS (Asymmetric Least Squares)
 
-ALS is the conceptual predecessor to arPLS. SpectroscopyTools.jl does not export a standalone `als_baseline` function — [`arpls_baseline`](@ref) is recommended instead and supersedes plain ALS for almost all practical work. The weighted-update idea that ALS introduced is what arPLS extends with automatic reweighting.
+ALS is the conceptual predecessor to arPLS. OpticalSpectroscopy.jl does not export a standalone `als_baseline` function — [`arpls_baseline`](@ref) is recommended instead and supersedes plain ALS for almost all practical work. The weighted-update idea that ALS introduced is what arPLS extends with automatic reweighting.
 
 ALS uses a fixed asymmetry parameter `p` to weight residuals. Points above the baseline are weighted by `p` (small), points below by `1-p` (large). This pushes the baseline below peaks.
 

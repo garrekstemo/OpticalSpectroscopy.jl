@@ -7,7 +7,7 @@ We simulate a Raman spectrum inline so the whole workflow is reproducible. For r
 ## Prerequisites
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CurveFitModels  # for `lorentzian` model
 using CairoMakie      # or GLMakie for interactive exploration
 using Random

@@ -1,7 +1,7 @@
-module SpectroscopyToolsMakieExt
+module OpticalSpectroscopyMakieExt
 
-using SpectroscopyTools
-using SpectroscopyTools: AbstractSpectroscopyData, MultiPeakFitResult,
+using OpticalSpectroscopy
+using OpticalSpectroscopy: AbstractSpectroscopyData, MultiPeakFitResult,
                          xdata, ydata, predict, predict_peak, predict_baseline
 using Makie
 
@@ -9,7 +9,7 @@ function Makie.convert_arguments(P::PointBased, d::AbstractSpectroscopyData)
     return Makie.convert_arguments(P, xdata(d), ydata(d))
 end
 
-function SpectroscopyTools.plot_fit(
+function OpticalSpectroscopy.plot_fit(
     fit::MultiPeakFitResult;
     residuals::Bool = true,
     components::Bool = false,

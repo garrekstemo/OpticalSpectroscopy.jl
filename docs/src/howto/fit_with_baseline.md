@@ -7,7 +7,7 @@ Peak fitting in `fit_peaks` includes a polynomial baseline by default, but for s
 `fit_peaks` fits peaks on top of a polynomial baseline. Control the polynomial order with `baseline_order`:
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CurveFitModels
 
 x = collect(range(1900, 2200, length=500))

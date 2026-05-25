@@ -1,4 +1,4 @@
-using SpectroscopyTools, GLMakie
+using OpticalSpectroscopy, GLMakie
 
 x = 1500.0:1.0:2500.0
 y = gaussian([1.0, 1800.0, 15.0], x) .+

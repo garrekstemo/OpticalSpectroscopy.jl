@@ -1,12 +1,12 @@
 """
-SpectroscopyTools.jl — General-purpose spectroscopy analysis toolkit.
+OpticalSpectroscopy.jl — General-purpose spectroscopy analysis toolkit.
 
 Provides data types, fitting routines, baseline correction, peak detection,
 unit conversions, and utility functions for spectroscopic data analysis.
 
 Extracted from QPS.jl to serve as a standalone, reusable foundation.
 """
-module SpectroscopyTools
+module OpticalSpectroscopy
 
 # Dependencies
 using CurveFit
@@ -124,9 +124,9 @@ export gaussian, lorentzian, pseudo_voigt, single_exponential
 export fano, voigt, log_normal
 
 # ==========================================================================
-# Plotting — methods live in SpectroscopyToolsMakieExt (loaded with Makie)
+# Plotting — methods live in OpticalSpectroscopyMakieExt (loaded with Makie)
 # ==========================================================================
 function plot_fit end
 export plot_fit
 
-end # module SpectroscopyTools
+end # module OpticalSpectroscopy

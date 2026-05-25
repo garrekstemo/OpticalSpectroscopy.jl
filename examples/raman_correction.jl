@@ -1,7 +1,7 @@
 # Correct & display a Raman spectrum loaded from a JASCO CSV.
 # load → ARPLS baseline → peak detection → display.
 
-using SpectroscopyTools, JASCOFiles, GLMakie
+using OpticalSpectroscopy, JASCOFiles, GLMakie
 
 src  = joinpath(@__DIR__, "data", "raman_mose2_synthetic.csv")
 spec = JASCOSpectrum(src)

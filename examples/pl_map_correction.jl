@@ -3,7 +3,7 @@
 # Data: 4× spatially binned PL map of a TMDC flake, 301 channels around 800 nm.
 # Original scan: 86×96 grid at 2 μm step, 2000 channels (656.6–943.7 nm).
 
-using SpectroscopyTools, GLMakie, DelimitedFiles
+using OpticalSpectroscopy, GLMakie, DelimitedFiles
 
 datadir = joinpath(@__DIR__, "data")
 wl   = vec(readdlm(joinpath(datadir, "wavelength.txt"); skipstart=1))

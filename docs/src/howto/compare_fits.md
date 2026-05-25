@@ -13,7 +13,7 @@ You have several spectra (different concentrations, temperatures, etc.) and want
 Assume you have a collection of `(x, y)` pairs — one per sample — keyed by a label:
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CairoMakie
 
 # spectra::Dict{String, Tuple{Vector{Float64}, Vector{Float64}}}

@@ -2,4 +2,4 @@
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 JASCOFiles = "8f461479-960a-4355-a802-16cf8971498c"
-SpectroscopyTools = "f1436f7a-66ba-4269-a153-8996db8f0853"
+OpticalSpectroscopy = "f1436f7a-66ba-4269-a153-8996db8f0853"

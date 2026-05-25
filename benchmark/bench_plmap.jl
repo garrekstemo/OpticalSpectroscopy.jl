@@ -1,7 +1,7 @@
 # PLMap performance benchmark
 # Run: julia --project=. -t 12 benchmark/bench_plmap.jl
 
-using SpectroscopyTools
+using OpticalSpectroscopy
 using Statistics
 using Random
 

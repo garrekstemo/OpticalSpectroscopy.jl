@@ -1,9 +1,9 @@
 using Documenter
-using SpectroscopyTools
+using OpticalSpectroscopy
 
 makedocs(
-    sitename = "SpectroscopyTools.jl",
-    modules = [SpectroscopyTools],
+    sitename = "OpticalSpectroscopy.jl",
+    modules = [OpticalSpectroscopy],
     checkdocs = :exports,
     warnonly = [:missing_docs, :cross_references],
     format = Documenter.HTML(
@@ -41,6 +41,6 @@ makedocs(
 )
 
 deploydocs(
-    repo = "github.com/garrekstemo/SpectroscopyTools.jl.git",
+    repo = "github.com/garrekstemo/OpticalSpectroscopy.jl.git",
     push_preview = true,
 )

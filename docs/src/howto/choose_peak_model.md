@@ -1,6 +1,6 @@
 # Choose a Peak Model
 
-SpectroscopyTools.jl supports three peak models from CurveFitModels.jl. This guide explains when to use each one.
+OpticalSpectroscopy.jl supports three peak models from CurveFitModels.jl. This guide explains when to use each one.
 
 ## Available Models
 
@@ -17,7 +17,7 @@ All models use the signature `fn(p, x)` (parameters first) and are ForwardDiff-c
 Start with some example data:
 
 ```julia
-using SpectroscopyTools
+using OpticalSpectroscopy
 using CurveFitModels
 
 x = collect(range(2000, 2150, length=500))

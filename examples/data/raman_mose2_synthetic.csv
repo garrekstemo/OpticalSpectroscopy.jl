@@ -1,6 +1,6 @@
 TITLE,Synthetic MoSe2 (Lorentzian peaks + noise)
 DATA TYPE,RAMAN SPECTRUM
-ORIGIN,SpectroscopyTools.jl examples
+ORIGIN,OpticalSpectroscopy.jl examples
 OWNER,
 DATE,26/05/01
 TIME,12:00:00

@@ -1,9 +1,9 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-SpectroscopyTools = "f1436f7a-66ba-4269-a153-8996db8f0853"
+OpticalSpectroscopy = "f1436f7a-66ba-4269-a153-8996db8f0853"
 
 [sources]
-SpectroscopyTools = {path = ".."}
+OpticalSpectroscopy = {path = ".."}
 
 [compat]
 Documenter = "1"
