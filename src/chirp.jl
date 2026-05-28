@@ -645,3 +645,21 @@ Return the singular values of a raw data matrix.
 function singular_values(data::AbstractMatrix)
     return svd(Float64.(data)).S
 end
+
+"""
+    estimate_n_components(sv; ratio=10.0) -> Int
+
+Estimate the number of significant components from a descending sequence of
+singular values `sv` using an elbow heuristic: return the first index `i`
+where `sv[i] / sv[i+1] > ratio`, marking a gap between signal and noise
+components. Returns `length(sv)` when no such gap exists. Use with
+[`singular_values`](@ref) to choose `n_components` for [`svd_filter`](@ref).
+"""
+function estimate_n_components(sv::AbstractVector; ratio::Real=10.0)
+    for i in 1:(length(sv) - 1)
+        if sv[i + 1] > 0 && sv[i] / sv[i + 1] > ratio
+            return i
+        end
+    end
+    return length(sv)
+end
