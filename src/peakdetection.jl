@@ -142,6 +142,27 @@ function find_peaks(y::AbstractVector; kwargs...)
     return find_peaks(x, y; kwargs...)
 end
 
+"""
+    peak_bounds(y, idx) -> (left, right)
+
+Find the extent of a peak located at index `idx` by walking outward to the
+nearest local minimum on each side. Returns the bounding indices
+`(left, right)` with `left <= idx <= right`. Used to delimit a peak around a
+known position (e.g. a user-selected point) rather than detecting peaks.
+"""
+function peak_bounds(y::AbstractVector, idx::Integer)
+    1 <= idx <= length(y) || throw(BoundsError(y, idx))
+    left = idx
+    while left > 1 && y[left - 1] <= y[left]
+        left -= 1
+    end
+    right = idx
+    while right < length(y) && y[right + 1] <= y[right]
+        right += 1
+    end
+    return (left, right)
+end
+
 # =============================================================================
 # Utilities
 # =============================================================================

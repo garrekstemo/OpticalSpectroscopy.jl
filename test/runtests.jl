@@ -652,6 +652,25 @@ Random.seed!(42)
         @test_throws ArgumentError transmittance_to_absorbance(-1.0)
     end
 
+    @testset "Spectroscopy utilities - reflectance conversions" begin
+        # Scalar: R = 1 - T
+        @test transmittance_to_reflectance(0.2) ≈ 0.8
+        @test transmittance_to_reflectance(20.0; percent=true) ≈ 0.8
+        # Scalar: R = 1 - 10^(-A)
+        @test absorbance_to_reflectance(0.0) ≈ 0.0
+        @test absorbance_to_reflectance(1.0) ≈ 0.9
+
+        # Vector
+        T = [0.1, 0.5, 0.9]
+        R = transmittance_to_reflectance(T)
+        @test R ≈ [0.9, 0.5, 0.1]
+        A = [0.0, 1.0, 2.0]
+        @test absorbance_to_reflectance(A) ≈ [0.0, 0.9, 0.99]
+
+        # Consistency: absorbance route equals transmittance route
+        @test absorbance_to_reflectance(1.0) ≈ transmittance_to_reflectance(absorbance_to_transmittance(1.0))
+    end
+
     @testset "Spectroscopy utilities - smooth_data" begin
         y = [0.0, 0.0, 1.0, 0.0, 0.0]
         ys = smooth_data(y; window=3)
@@ -943,6 +962,29 @@ Random.seed!(42)
         @test occursin("2080.0", table)
 
         @test peak_table(PeakInfo[]) == "No peaks detected"
+    end
+
+    @testset "peak_bounds" begin
+        # Single triangular peak at index 4; minima at the ends
+        y = [0.0, 1.0, 2.0, 3.0, 2.0, 1.0, 0.0]
+        @test peak_bounds(y, 4) == (1, 7)
+
+        # Two peaks separated by a valley at index 4
+        y2 = [0.0, 2.0, 1.0, 0.5, 1.0, 3.0, 0.0]
+        # From the left peak (idx 2), right edge stops at the valley (idx 4)
+        @test peak_bounds(y2, 2) == (1, 4)
+        # From the right peak (idx 6), left edge stops at the valley (idx 4)
+        @test peak_bounds(y2, 6) == (4, 7)
+
+        # Flat plateau is walked through (<= comparison)
+        @test peak_bounds([0.0, 1.0, 1.0, 1.0, 0.0], 3) == (1, 5)
+
+        # idx at the left edge with a rise to the right → both walks stop immediately
+        @test peak_bounds([1.0, 5.0, 2.0], 1) == (1, 1)
+
+        # Out-of-range index
+        @test_throws BoundsError peak_bounds(y, 0)
+        @test_throws BoundsError peak_bounds(y, 8)
     end
 
     @testset "Re-exports from CurveFit" begin
@@ -1478,6 +1520,22 @@ Random.seed!(42)
             @test_throws ArgumentError svd_filter(matrix; n_components=0)
             @test_throws ArgumentError svd_filter(matrix; n_components=100)
             @test_throws DimensionMismatch svd_filter(time, wavelength[1:5], noisy_data; n_components=2)
+        end
+
+        @testset "estimate_n_components - elbow heuristic" begin
+            # Clear gap after the third component
+            @test estimate_n_components([100.0, 50.0, 20.0, 1.0, 0.5]) == 3
+            # No gap exceeding the ratio → all components
+            @test estimate_n_components([10.0, 9.0, 8.0, 7.0]) == 4
+            # Custom ratio: a 2× drop now counts
+            @test estimate_n_components([10.0, 4.0, 3.0]; ratio=2.0) == 1
+            # Zero next value is not treated as a gap (no divide-by-zero) → all components
+            @test estimate_n_components([5.0, 0.0]) == 2
+            # Single value
+            @test estimate_n_components([3.0]) == 1
+            # Integrates with singular_values
+            n = estimate_n_components(singular_values(noisy_data))
+            @test 1 <= n <= length(singular_values(noisy_data))
         end
     end
 

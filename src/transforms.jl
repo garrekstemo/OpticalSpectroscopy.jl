@@ -144,6 +144,26 @@ Works on scalars and vectors via broadcasting.
 reflectance_to_absorbance(R) = -log10.(R)
 
 """
+    transmittance_to_reflectance(T; percent=false)
+
+Convert transmittance to reflectance for a non-absorbing, non-scattering
+sample: R = 1 - T. Input `T` is fractional (0 to 1); use `percent=true` for
+percent transmittance. Works on scalars and vectors.
+"""
+transmittance_to_reflectance(T::Real; percent::Bool=false) = 1.0 - (percent ? T / 100.0 : T)
+transmittance_to_reflectance(T::AbstractVector; percent::Bool=false) =
+    transmittance_to_reflectance.(T; percent=percent)
+
+"""
+    absorbance_to_reflectance(A)
+
+Convert absorbance to reflectance via transmittance: R = 1 - 10^(-A).
+Works on scalars and vectors.
+"""
+absorbance_to_reflectance(A::Real) = 1.0 - 10.0^(-A)
+absorbance_to_reflectance(A::AbstractVector) = absorbance_to_reflectance.(A)
+
+"""
     snv(y::AbstractVector)
 
 Standard Normal Variate: `(y - mean(y)) / std(y)`.

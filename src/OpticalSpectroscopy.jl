@@ -73,12 +73,12 @@ export report, format_results, polynomial
 # ==========================================================================
 export ChirpCalibration, detect_chirp, correct_chirp, subtract_background
 export save_chirp, load_chirp
-export svd_filter, singular_values
+export svd_filter, singular_values, estimate_n_components
 
 # ==========================================================================
 # Exports — Peak detection
 # ==========================================================================
-export PeakInfo, find_peaks, peak_table
+export PeakInfo, find_peaks, peak_table, peak_bounds
 
 # ==========================================================================
 # Exports — Baseline correction
@@ -101,7 +101,8 @@ export add_spectra, divide_spectra, multiply_spectrum, average_spectra
 export interpolate_spectrum
 # Transforms
 export kramers_kronig, kubelka_munk, tauc_plot
-export reflectance_to_absorbance, snv, beer_lambert
+export reflectance_to_absorbance, transmittance_to_reflectance, absorbance_to_reflectance
+export snv, beer_lambert
 export urbach_tail, thickness_from_fringes
 
 # ==========================================================================
