@@ -2,7 +2,7 @@
 
 **Spectroscopy analysis for Julia — steady-state and ultrafast.**
 
-For steady-state work, OpticalSpectroscopy provides peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`TATrace`, `TASpectrum`, `TAMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
+For steady-state work, OpticalSpectroscopy provides peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`KineticTrace`, `TASpectrum`, `TAMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
 
 ## Installation
 
@@ -24,7 +24,7 @@ using Unitful
 time = collect(range(0, 20.0, length=400))
 signal = 0.6 .* exp.(-time ./ 0.5) .+ 0.4 .* exp.(-time ./ 5.0) .+ 0.01 .* randn(length(time))
 
-trace = TATrace(time, signal; wavelength=800.0)
+trace = KineticTrace(time, signal; wavelength=800.0)
 fit = fit_exp_decay(trace; n_exp=2)
 report(fit)
 
@@ -64,7 +64,7 @@ decay_time_to_linewidth(1.0u"ps")    # -> linewidth in meV (default output unit)
 
 | Module | What it does |
 |--------|-------------|
-| **TA data types** | `TATrace`, `TASpectrum`, `TAMatrix` with semantic axis indexing (`m[λ=800]`, `m[t=1.0]`) |
+| **TA data types** | `KineticTrace`, `TASpectrum`, `TAMatrix` with semantic axis indexing (`m[λ=800]`, `m[t=1.0]`) |
 | **Exponential decay** | Single/multi-exponential with optional IRF convolution |
 | **Global fitting** | Shared parameters across traces, decay-associated spectra |
 | **TA spectrum fitting** | N-peak model with ESA/GSB/SE labels and sign convention |

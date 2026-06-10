@@ -41,7 +41,7 @@ General-purpose spectroscopy analysis tools for Julia. Public, registerable pack
 
 ```
 AbstractSpectroscopyData (root interface)
-├── TATrace          (kinetics: signal vs time at fixed wavelength)
+├── KineticTrace     (kinetics: signal vs time at fixed wavelength)
 ├── TASpectrum       (spectrum: signal vs wavenumber at fixed time)
 └── TAMatrix         (2D: time × wavelength heatmap)
 ```

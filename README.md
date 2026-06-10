@@ -8,7 +8,7 @@
 
 **Integrated tools for optical spectroscopy in Julia — UV-Vis, FTIR, Raman, photoluminescence, and femtosecond transient absorption.**
 
-OpticalSpectroscopy.jl combines typed data structures (`TATrace`, `TASpectrum`, `TAMatrix`, `PLMap`) with peak fitting (Gaussian, Lorentzian, Voigt, Pseudo-Voigt, Fano), baseline correction (arPLS, SNIP, rubber band, iModPoly, rolling ball), peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), unit conversions, and ultrafast-specific tools including IRF-convolved exponential fitting, global analysis with decay-associated spectra, and chirp correction for broadband pump-probe data.
+OpticalSpectroscopy.jl combines typed data structures (`KineticTrace`, `TASpectrum`, `TAMatrix`, `PLMap`) with peak fitting (Gaussian, Lorentzian, Voigt, Pseudo-Voigt, Fano), baseline correction (arPLS, SNIP, rubber band, iModPoly, rolling ball), peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), unit conversions, and ultrafast-specific tools including IRF-convolved exponential fitting, global analysis with decay-associated spectra, and chirp correction for broadband pump-probe data.
 
 The core primitives — peak fitting, baseline correction, smoothing, unit conversions — work on any 1D spectrum-like data and are usable across spectroscopic domains as needed.
 
@@ -25,7 +25,7 @@ Pkg.add("OpticalSpectroscopy")
 using OpticalSpectroscopy
 
 # --- Ultrafast: kinetics with IRF-convolved biexponential ---
-trace = TATrace(time, signal; wavelength=800.0)
+trace = KineticTrace(time, signal; wavelength=800.0)
 fit = fit_exp_decay(trace; n_exp=2, irf=true)
 report(fit)
 
@@ -51,7 +51,7 @@ decay_time_to_linewidth(1.0u"ps")
 
 | Module | Description |
 |--------|-------------|
-| **TA data types** | `TATrace`, `TASpectrum`, `TAMatrix` with semantic axis indexing (`m[λ=800]`, `m[t=1.0]`) |
+| **TA data types** | `KineticTrace`, `TASpectrum`, `TAMatrix` with semantic axis indexing (`m[λ=800]`, `m[t=1.0]`) |
 | **Exponential decay** | Single/multi-exponential with optional IRF convolution |
 | **Global fitting** | Shared parameters across traces, decay-associated spectra |
 | **TA spectrum fitting** | N-peak model with ESA/GSB/SE labels and sign convention |
@@ -71,14 +71,14 @@ OpticalSpectroscopy provides typed containers for spectroscopy data:
 
 ```julia
 # Kinetics at a single wavelength
-trace = TATrace(time, signal; wavelength=800.0)
+trace = KineticTrace(time, signal; wavelength=800.0)
 
 # Spectrum at a fixed time delay
 spectrum = TASpectrum(wavenumber, signal; time_delay=1.0)
 
 # 2D time x wavelength matrix with semantic indexing
 matrix = TAMatrix(time, wavelength, data)
-matrix[λ=800]   # -> TATrace at nearest wavelength
+matrix[λ=800]   # -> KineticTrace at nearest wavelength
 matrix[t=1.0]   # -> TASpectrum at nearest time delay
 ```
 
@@ -92,7 +92,7 @@ The shared algorithmic primitives — peak fitting, baseline correction, smoothi
 
 [Spectra.jl](https://github.com/charlesll/Spectra.jl) is an array-based toolkit for steady-state Raman/IR processing: plain `x`/`y` arrays through baseline correction, smoothing, and peak fitting, plus Raman-specific corrections (Long/Galeener/Hehlen temperature-excitation corrections, diamond anvil cell utilities).
 
-OpticalSpectroscopy.jl instead provides **typed data structures** (`TATrace`, `TASpectrum`, `TAMatrix`, `PLMap`) for TA/PL/FTIR data with semantic indexing (`matrix[λ=800]`, `matrix[t=1.0]`), and an **integrated transient-absorption pipeline** — chirp detection and correction for broadband pump-probe data, SVD filtering, and IRF-convolved exponential and global fitting with decay-associated spectra — which no registered Julia package offers. The steady-state primitives are the shared foundation; the ultrafast and mapping workflows are the differentiator. The two packages are complementary and coexist in one session.
+OpticalSpectroscopy.jl instead provides **typed data structures** (`KineticTrace`, `TASpectrum`, `TAMatrix`, `PLMap`) for TA/PL/FTIR data with semantic indexing (`matrix[λ=800]`, `matrix[t=1.0]`), and an **integrated transient-absorption pipeline** — chirp detection and correction for broadband pump-probe data, SVD filtering, and IRF-convolved exponential and global fitting with decay-associated spectra — which no registered Julia package offers. The steady-state primitives are the shared foundation; the ultrafast and mapping workflows are the differentiator. The two packages are complementary and coexist in one session.
 
 ## Related packages
 

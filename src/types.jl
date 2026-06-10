@@ -46,7 +46,7 @@ abstract type AbstractSpectroscopyData end
 """
     xdata(d::AbstractSpectroscopyData) -> Vector{Float64}
 
-Return the primary x-axis data (e.g. time for [`TATrace`](@ref), wavenumber
+Return the primary x-axis data (e.g. time for [`KineticTrace`](@ref), wavenumber
 for [`TASpectrum`](@ref), wavelength for [`TAMatrix`](@ref)).
 Every concrete subtype implements this.
 """
@@ -126,69 +126,73 @@ title(d::AbstractSpectroscopyData) = source_file(d)
 # =============================================================================
 
 """
-    TATrace <: AbstractSpectroscopyData
+    KineticTrace <: AbstractSpectroscopyData
 
-Single-wavelength transient absorption kinetic trace.
+Single-wavelength kinetic trace: signal versus time.
+
+Covers transient-absorption kinetics (ΔA) and time-resolved PL decays
+(counts). Signal semantics live in `metadata` (see `:signal_label`,
+`:time_unit`).
 
 # Fields
-- `time::Vector{Float64}`: Time axis (ps)
-- `signal::Vector{Float64}`: ΔA signal
-- `wavelength::Float64`: Probe wavelength, NaN if unknown
+- `time::Vector{Float64}`: Time axis
+- `signal::Vector{Float64}`: Signal at each time point
+- `wavelength::Float64`: Probe/emission wavelength, NaN if unknown
 - `metadata::Dict{Symbol,Any}`: Additional info
 """
-struct TATrace <: AbstractSpectroscopyData
+struct KineticTrace <: AbstractSpectroscopyData
     time::Vector{Float64}
     signal::Vector{Float64}
     wavelength::Float64
     metadata::Dict{Symbol,Any}
 
-    function TATrace(time, signal, wavelength, metadata)
+    function KineticTrace(time, signal, wavelength, metadata)
         length(time) == length(signal) || throw(ArgumentError(
-            "TATrace: time and signal must have equal length; " *
+            "KineticTrace: time and signal must have equal length; " *
             "got $(length(time)) time points and $(length(signal)) signal points"))
         new(time, signal, wavelength, metadata)
     end
 end
 
 # Constructor with default wavelength
-TATrace(time, signal; wavelength=NaN, metadata=Dict{Symbol,Any}()) =
-    TATrace(time, signal, wavelength, metadata)
+KineticTrace(time, signal; wavelength=NaN, metadata=Dict{Symbol,Any}()) =
+    KineticTrace(time, signal, wavelength, metadata)
 
 # AbstractSpectroscopyData interface
-xdata(t::TATrace) = t.time
-ydata(t::TATrace) = t.signal
-xlabel(::TATrace) = "Time (ps)"
-ylabel(::TATrace) = "ΔA"
-source_file(t::TATrace) = get(t.metadata, :filename, "")
+xdata(t::KineticTrace) = t.time
+ydata(t::KineticTrace) = t.signal
+xlabel(::KineticTrace) = "Time (ps)"
+ylabel(::KineticTrace) = "ΔA"
+source_file(t::KineticTrace) = get(t.metadata, :filename, "")
 
 # Semantic accessors
 """
-    delay(t::TATrace) -> Vector{Float64}
+    delay(t::KineticTrace) -> Vector{Float64}
 
-Return the time delay axis (ps).
+Return the time axis.
 """
-delay(t::TATrace) = t.time
+delay(t::KineticTrace) = t.time
 
 """
-    signal(t::TATrace) -> Vector{Float64}
+    signal(t::KineticTrace) -> Vector{Float64}
 
-Return the ΔA signal.
+Return the signal values (ΔA, counts, or other units depending on data source).
 """
-signal(t::TATrace) = t.signal
+signal(t::KineticTrace) = t.signal
 
 # Pretty printing
-function Base.show(io::IO, t::TATrace)
+function Base.show(io::IO, t::KineticTrace)
     n = length(t.time)
     t_range = "$(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) ps"
     λ_str = isnan(t.wavelength) ? "unknown" : "$(t.wavelength)"
     filename = get(t.metadata, :filename, "")
 
-    print(io, "TATrace: $n points, $t_range")
+    print(io, "KineticTrace: $n points, $t_range")
     !isempty(filename) && print(io, " ($(filename))")
 end
 
-function Base.show(io::IO, ::MIME"text/plain", t::TATrace)
-    println(io, "TATrace")
+function Base.show(io::IO, ::MIME"text/plain", t::KineticTrace)
+    println(io, "KineticTrace")
     println(io, "  Time points: $(length(t.time))")
     println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) ps")
     println(io, "  Wavelength:  $(isnan(t.wavelength) ? "unknown" : t.wavelength)")
@@ -206,7 +210,7 @@ end
 Per-sweep multi-channel lock-in detector data. Each matrix is
 `n_points × n_sweeps`. `NaN` marks an unmeasured point (e.g. from an
 aborted partial sweep). This is the un-averaged counterpart to
-[`TATrace`](@ref) — sweep-resolved raw output before collapsing across
+[`KineticTrace`](@ref) — sweep-resolved raw output before collapsing across
 sweeps.
 
 # Fields
@@ -783,7 +787,7 @@ Two-dimensional transient absorption data (time x wavelength).
 
 # Indexing
 ```julia
-matrix[λ=800]     # Extract TATrace at λ ≈ 800 nm
+matrix[λ=800]     # Extract KineticTrace at λ ≈ 800 nm
 matrix[t=1.0]     # Extract TASpectrum at t ≈ 1.0 ps
 ```
 """
@@ -900,7 +904,7 @@ function Base.getindex(m::TAMatrix; λ=nothing, t=nothing)
             :wavelength_index => idx
         )
 
-        return TATrace(m.time, signal, actual_λ, metadata)
+        return KineticTrace(m.time, signal, actual_λ, metadata)
 
     elseif !isnothing(t) && isnothing(λ)
         idx = _find_nearest_idx(m.time, t)

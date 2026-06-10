@@ -17,20 +17,20 @@ Random.seed!(42)
     end
 
     @testset "Type hierarchy" begin
-        @test TATrace <: AbstractSpectroscopyData
+        @test KineticTrace <: AbstractSpectroscopyData
         @test TASpectrum <: AbstractSpectroscopyData
         @test TAMatrix <: AbstractSpectroscopyData
     end
 
     @testset "Constructor shape validation" begin
-        # TATrace: time and signal must have equal length
-        @test_throws ArgumentError TATrace([1.0, 2.0, 3.0], [1.0, 2.0])
-        err = try TATrace([1.0, 2.0, 3.0], [1.0, 2.0]) catch e; e end
+        # KineticTrace: time and signal must have equal length
+        @test_throws ArgumentError KineticTrace([1.0, 2.0, 3.0], [1.0, 2.0])
+        err = try KineticTrace([1.0, 2.0, 3.0], [1.0, 2.0]) catch e; e end
         @test occursin("3", err.msg) && occursin("2", err.msg)
         # positional (inner) path validates too
-        @test_throws ArgumentError TATrace([1.0, 2.0, 3.0], [1.0, 2.0], NaN, Dict{Symbol,Any}())
+        @test_throws ArgumentError KineticTrace([1.0, 2.0, 3.0], [1.0, 2.0], NaN, Dict{Symbol,Any}())
         # valid construction unaffected
-        @test TATrace([1.0, 2.0], [0.1, 0.2]) isa TATrace
+        @test KineticTrace([1.0, 2.0], [0.1, 0.2]) isa KineticTrace
 
         # TASpectrum: wavenumber and signal must have equal length
         @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3])
@@ -55,8 +55,8 @@ Random.seed!(42)
         @test_throws ArgumentError TAMatrix(time, wl, zeros(3, 4), Dict{Symbol,Any}())
     end
 
-    @testset "AbstractSpectroscopyData interface - TATrace" begin
-        trace = TATrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
+    @testset "AbstractSpectroscopyData interface - KineticTrace" begin
+        trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
 
         @test xdata(trace) == [0.0, 1.0, 2.0]
         @test ydata(trace) == [0.1, 0.5, 0.3]
@@ -95,7 +95,7 @@ Random.seed!(42)
         @test isnan(sd_nan.X[end, end])
 
         # SweepData is NOT a subtype of AbstractSpectroscopyData (it's raw lock-in
-        # output, not a finished spectroscopy product like TATrace).
+        # output, not a finished spectroscopy product like KineticTrace).
         @test !(SweepData <: AbstractSpectroscopyData)
     end
 
@@ -119,15 +119,15 @@ Random.seed!(42)
     end
 
     @testset "Extended interface - source_file, npoints, title" begin
-        # TATrace
-        trace = TATrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3];
+        # KineticTrace
+        trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3];
                         metadata=Dict{Symbol,Any}(:filename => "test.lvm"))
         @test source_file(trace) == "test.lvm"
         @test npoints(trace) == 3
         @test title(trace) == "test.lvm"
 
-        # TATrace without filename
-        trace_empty = TATrace([0.0, 1.0], [0.1, 0.2])
+        # KineticTrace without filename
+        trace_empty = KineticTrace([0.0, 1.0], [0.1, 0.2])
         @test source_file(trace_empty) == ""
         @test npoints(trace_empty) == 2
         @test title(trace_empty) == ""
@@ -150,8 +150,8 @@ Random.seed!(42)
         @test title(matrix) == "broadband-TA/"
     end
 
-    @testset "Semantic accessors - TATrace" begin
-        trace = TATrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
+    @testset "Semantic accessors - KineticTrace" begin
+        trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
         @test delay(trace) === trace.time
         @test signal(trace) === trace.signal
     end
@@ -178,9 +178,9 @@ Random.seed!(42)
         data = rand(5, 4)
         matrix = TAMatrix(time, wavelength, data)
 
-        # Extract TATrace at wavelength
+        # Extract KineticTrace at wavelength
         trace = matrix[λ=800]
-        @test trace isa TATrace
+        @test trace isa KineticTrace
         @test length(trace.time) == 5
         @test trace.wavelength ≈ 800.0
 
@@ -381,7 +381,7 @@ Random.seed!(42)
         # Add small noise
         signal .+= 0.001 .* randn(length(signal))
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; irf=true, irf_width=0.2)
 
         @test result isa ExpDecayFit
@@ -399,7 +399,7 @@ Random.seed!(42)
         signal = @. A_true * exp(-t / tau_true) + offset_true
         signal .+= 0.001 .* randn(length(signal))
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; irf=false)
 
         @test result isa ExpDecayFit
@@ -421,7 +421,7 @@ Random.seed!(42)
                   for ti in t]
         signal .+= 0.002 .* randn(length(signal))
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; n_exp=2, irf=true, irf_width=0.2)
 
         @test result isa MultiexpDecayFit
@@ -438,7 +438,7 @@ Random.seed!(42)
                   for ti in t]
         signal .+= 0.002 .* randn(length(signal))
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
 
         # n_exp=2
         result2 = fit_exp_decay(trace; n_exp=2, irf=true, irf_width=0.2)
@@ -470,8 +470,8 @@ Random.seed!(42)
         signal_gsb = [OpticalSpectroscopy._exp_decay_irf_conv(ti, -0.5, tau_true, 0.0, sigma_true) - 0.005
                       for ti in t]
 
-        trace_esa = TATrace(t, signal_esa)
-        trace_gsb = TATrace(t, signal_gsb)
+        trace_esa = KineticTrace(t, signal_esa)
+        trace_gsb = KineticTrace(t, signal_gsb)
 
         result = fit_global([trace_esa, trace_gsb]; n_exp=1, labels=["ESA", "GSB"], irf_width=0.2)
 
@@ -506,8 +506,8 @@ Random.seed!(42)
                    OpticalSpectroscopy._exp_decay_irf_conv(ti, -0.5, tau2_true, 0.0, sigma_true) - 0.005
                    for ti in t]
 
-        trace1 = TATrace(t, signal1)
-        trace2 = TATrace(t, signal2)
+        trace1 = KineticTrace(t, signal1)
+        trace2 = KineticTrace(t, signal2)
 
         result = fit_global([trace1, trace2]; n_exp=2, irf_width=0.2, labels=["ESA", "GSB"])
 
@@ -654,7 +654,7 @@ Random.seed!(42)
         signal = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 1.0, 5.0, 0.0, 0.3) + 0.01
                   for ti in t]
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; irf=true, irf_width=0.2)
 
         curve = predict(result, trace)
@@ -672,7 +672,7 @@ Random.seed!(42)
                   OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.5, 15.0, 0.0, 0.3) + 0.01
                   for ti in t]
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; n_exp=2, irf=true, irf_width=0.2)
 
         curve = predict(result, trace)

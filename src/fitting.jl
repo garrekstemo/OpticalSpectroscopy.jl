@@ -129,12 +129,12 @@ end
 # =============================================================================
 
 """
-    fit_exp_decay(trace::TATrace; n_exp=1, irf=false, irf_width=0.15, t_start=0.0, t_range=nothing)
+    fit_exp_decay(trace::KineticTrace; n_exp=1, irf=false, irf_width=0.15, t_start=0.0, t_range=nothing)
 
-Fit exponential decay to a transient absorption trace.
+Fit an exponential decay model to a `KineticTrace`.
 
 # Arguments
-- `trace`: TATrace
+- `trace`: KineticTrace
 - `n_exp`: Number of exponential components (default 1)
 - `irf`: Include IRF convolution (default false)
 - `irf_width`: Initial guess for IRF σ in ps (default 0.15)
@@ -145,7 +145,7 @@ Fit exponential decay to a transient absorption trace.
 - `n_exp=1`: `ExpDecayFit`
 - `n_exp>1`: `MultiexpDecayFit`
 """
-function fit_exp_decay(trace::TATrace; n_exp::Int=1, irf::Bool=false, irf_width::Float64=0.15,
+function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_width::Float64=0.15,
                        t_start::Float64=0.0, t_range=nothing)
     @assert n_exp >= 1 "n_exp must be at least 1"
 
@@ -202,7 +202,7 @@ end
 # Multi-exponential fitting (internal)
 # =============================================================================
 
-function _fit_multiexp_decay(trace::TATrace; n_exp::Int, irf::Bool, irf_width::Float64,
+function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_width::Float64,
                              t_start::Float64, t_range)
     t = trace.time
     signal = trace.signal
@@ -328,7 +328,7 @@ end
 # =============================================================================
 
 """
-    fit_global(traces::Vector{TATrace}; n_exp=1, irf_width=0.15, labels=nothing) -> GlobalFitResult
+    fit_global(traces::Vector{KineticTrace}; n_exp=1, irf_width=0.15, labels=nothing) -> GlobalFitResult
 
 Fit multiple traces simultaneously with shared time constant(s) τ.
 
@@ -354,7 +354,7 @@ result = fit_global([trace1, trace2, trace3]; n_exp=2)
 report(result)
 ```
 """
-function fit_global(traces::Vector{TATrace}; n_exp::Int=1, irf_width::Float64=0.15, labels=nothing)
+function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float64=0.15, labels=nothing)
     n_traces = length(traces)
     @assert n_traces >= 2 "Need at least 2 traces for global fitting"
     @assert n_exp >= 1 "n_exp must be at least 1"
@@ -522,7 +522,7 @@ function fit_global(matrix::TAMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=
             "or an SVD/coarse-grained selection), or raise max_wavelengths if you accept the cost."))
     end
 
-    traces = TATrace[]
+    traces = KineticTrace[]
     actual_wavelengths = Float64[]
     for wl in wavelengths
         tr = matrix[λ=wl]
@@ -559,9 +559,9 @@ function predict(fit::ExpDecayFit, time::AbstractVector)
     end
 end
 
-predict(fit::ExpDecayFit, trace::TATrace) = predict(fit, trace.time)
+predict(fit::ExpDecayFit, trace::KineticTrace) = predict(fit, trace.time)
 
-function predict(fit::GlobalFitResult, traces::Vector{TATrace})
+function predict(fit::GlobalFitResult, traces::Vector{KineticTrace})
     n = length(traces)
     curves = Vector{Vector{Float64}}(undef, n)
     for i in 1:n
@@ -609,7 +609,7 @@ function predict(fit::MultiexpDecayFit, time::AbstractVector)
     end
 end
 
-predict(fit::MultiexpDecayFit, trace::TATrace) = predict(fit, trace.time)
+predict(fit::MultiexpDecayFit, trace::KineticTrace) = predict(fit, trace.time)
 
 # =============================================================================
 # TA Spectrum Fitting (generalized N-peak model)

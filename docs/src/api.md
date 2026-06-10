@@ -12,7 +12,7 @@ OpticalSpectroscopy.OpticalSpectroscopy
 
 ```@docs
 AbstractSpectroscopyData
-TATrace
+KineticTrace
 TASpectrum
 TAMatrix
 SweepData
