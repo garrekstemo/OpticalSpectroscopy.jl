@@ -6,6 +6,8 @@
 #
 # 1D algorithm: Whitaker-Hayes modified z-score on first differences with
 # shoulder expansion for single spectra.
+# Reference: D. A. Whitaker and K. Hayes, Chemom. Intell. Lab. Syst. 179, 82
+# (2018), doi:10.1016/j.chemolab.2018.06.009.
 #
 # PLMap algorithm: Most Similar Neighbor (MSN) comparison. Each pixel's
 # spectrum is compared to the 4-connected neighbor with the highest Pearson
@@ -76,6 +78,11 @@ A [`CosmicRayResult`](@ref) with the flagged channel indices.
 result = detect_cosmic_rays(spectrum; threshold=5.0)
 println("Found \$(result.count) cosmic rays at indices \$(result.indices)")
 ```
+
+# Reference
+D. A. Whitaker and K. Hayes, "A simple algorithm for despiking Raman spectra",
+Chemom. Intell. Lab. Syst. 179, 82 (2018).
+[doi:10.1016/j.chemolab.2018.06.009](https://doi.org/10.1016/j.chemolab.2018.06.009)
 """
 function detect_cosmic_rays(signal::AbstractVector; threshold::Real=5.0)
     n = length(signal)

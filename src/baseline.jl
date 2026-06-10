@@ -304,6 +304,11 @@ the baseline envelope, followed by moving-average smoothing.
 # Arguments
 - `half_window::Int=50`: Half-window size for morphological operations.
 - `smooth_half_window::Int`: Half-window for final smoothing (default: `half_window`).
+
+# Reference
+M. A. Kneen and H. J. Annegarn, "Algorithm for fitting XRF, SEM and PIXE X-ray
+spectra backgrounds", Nucl. Instrum. Methods Phys. Res. B 109/110, 209 (1996).
+[doi:10.1016/0168-583X(95)00908-6](https://doi.org/10.1016/0168-583X(95)00908-6)
 """
 function rolling_ball_baseline(y::AbstractVector{<:Real};
                                half_window::Int=50,

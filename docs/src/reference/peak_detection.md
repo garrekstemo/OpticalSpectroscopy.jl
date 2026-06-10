@@ -12,6 +12,7 @@ PeakInfo
 
 ```@docs
 find_peaks
+peak_bounds
 ```
 
 ## Display

@@ -12,8 +12,6 @@ OpticalSpectroscopy.jl combines typed data structures (`TATrace`, `TASpectrum`, 
 
 The core primitives — peak fitting, baseline correction, smoothing, unit conversions — work on any 1D spectrum-like data and are usable across spectroscopic domains as needed.
 
-> **Note:** This package is currently being tested internally in our lab.
-
 ## Installation
 
 ```julia
@@ -89,6 +87,12 @@ matrix[t=1.0]   # -> TASpectrum at nearest time delay
 OpticalSpectroscopy.jl targets photon-based spectroscopy of condensed matter and molecular systems. It does not cover magnetic resonance (NMR, EPR), X-ray (XRD, XPS, XAS), mass spectrometry, atomic/plasma spectroscopy, astronomical spectroscopy, or attosecond spectroscopy — those fields have different data conventions and analysis traditions.
 
 The shared algorithmic primitives — peak fitting, baseline correction, smoothing — operate on any 1D signal data and can be used across domains as needed.
+
+## How is this different from Spectra.jl?
+
+[Spectra.jl](https://github.com/charlesll/Spectra.jl) is an array-based toolkit for steady-state Raman/IR processing: plain `x`/`y` arrays through baseline correction, smoothing, and peak fitting, plus Raman-specific corrections (Long/Galeener/Hehlen temperature-excitation corrections, diamond anvil cell utilities).
+
+OpticalSpectroscopy.jl instead provides **typed data structures** (`TATrace`, `TASpectrum`, `TAMatrix`, `PLMap`) for TA/PL/FTIR data with semantic indexing (`matrix[λ=800]`, `matrix[t=1.0]`), and an **integrated transient-absorption pipeline** — chirp detection and correction for broadband pump-probe data, SVD filtering, and IRF-convolved exponential and global fitting with decay-associated spectra — which no registered Julia package offers. The steady-state primitives are the shared foundation; the ultrafast and mapping workflows are the differentiator. The two packages are complementary and coexist in one session.
 
 ## Related packages
 

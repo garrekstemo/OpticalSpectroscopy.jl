@@ -38,6 +38,28 @@ intensity_mask
 peak_centers
 ```
 
+## Batch Peak Fitting
+
+```@docs
+fit_map
+FitMapResult
+```
+
+## Decomposition (PCA / NMF)
+
+```@docs
+pca_map
+nmf_map
+DecompositionResult
+```
+
+## Normalization and Accessors
+
+```@docs
+normalize_intensity
+intensity
+```
+
 ## Cosmic Ray Detection and Removal
 
 ```@docs

@@ -42,12 +42,60 @@ end
 abstract type AbstractSpectroscopyData end
 
 # Interface functions (default implementations raise errors)
+
+"""
+    xdata(d::AbstractSpectroscopyData) -> Vector{Float64}
+
+Return the primary x-axis data (e.g. time for [`TATrace`](@ref), wavenumber
+for [`TASpectrum`](@ref), wavelength for [`TAMatrix`](@ref)).
+Every concrete subtype implements this.
+"""
 xdata(::AbstractSpectroscopyData) = error("xdata not implemented for this type")
+
+"""
+    ydata(d::AbstractSpectroscopyData) -> Vector{Float64}
+
+Return the signal data for 1D types, or the secondary axis for 2D types
+(e.g. the time axis of a [`TAMatrix`](@ref)).
+"""
 ydata(::AbstractSpectroscopyData) = error("ydata not implemented for this type")
+
+"""
+    zdata(d::AbstractSpectroscopyData) -> Union{Matrix{Float64}, Nothing}
+
+Return the signal matrix for 2D types (e.g. the ΔA matrix of a
+[`TAMatrix`](@ref), the intensity map of a [`PLMap`](@ref)).
+Returns `nothing` for 1D data.
+"""
 zdata(::AbstractSpectroscopyData) = nothing  # Default: not a matrix
+
+"""
+    xlabel(d::AbstractSpectroscopyData) -> String
+
+Return a display label for the x axis (e.g. `"Time (ps)"`, `"Wavenumber (cm⁻¹)"`).
+"""
 xlabel(::AbstractSpectroscopyData) = "X"
+
+"""
+    ylabel(d::AbstractSpectroscopyData) -> String
+
+Return a display label for the y axis or signal (e.g. `"ΔA"`).
+"""
 ylabel(::AbstractSpectroscopyData) = "Y"
+
+"""
+    zlabel(d::AbstractSpectroscopyData) -> String
+
+Return a display label for the signal of 2D data (e.g. `"ΔA"`, `"PL Intensity"`).
+"""
 zlabel(::AbstractSpectroscopyData) = "Signal"
+
+"""
+    is_matrix(d::AbstractSpectroscopyData) -> Bool
+
+Whether the data is 2D (`true` for [`TAMatrix`](@ref) and [`PLMap`](@ref);
+`false` for 1D types). When `true`, [`zdata`](@ref) returns a matrix.
+"""
 is_matrix(::AbstractSpectroscopyData) = false  # Default: 1D data
 
 """

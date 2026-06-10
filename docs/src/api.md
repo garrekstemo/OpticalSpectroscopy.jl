@@ -15,10 +15,42 @@ AbstractSpectroscopyData
 TATrace
 TASpectrum
 TAMatrix
+SweepData
 TASpectrumFit
 TAPeak
 fit_ta_spectrum
 anharmonicity
+```
+
+## Data Interface
+
+Uniform accessors implemented by every `AbstractSpectroscopyData` subtype.
+
+```@docs
+xdata
+ydata
+zdata
+xlabel
+ylabel
+zlabel
+is_matrix
+```
+
+## Semantic Accessors
+
+Type-specific accessors with domain names.
+
+```@docs
+delay
+signal
+wavenumber
+wavelength
+```
+
+## Plotting
+
+```@docs
+plot_fit
 ```
 
 ## Chirp Correction
@@ -37,6 +69,7 @@ load_chirp
 ```@docs
 svd_filter
 singular_values
+estimate_n_components
 ```
 
 ## Exponential Decay Fitting
@@ -68,6 +101,31 @@ absorbance_to_transmittance
 npoints
 source_file
 title
+```
+
+## Spectral Arithmetic
+
+```@docs
+add_spectra
+divide_spectra
+multiply_spectrum
+average_spectra
+interpolate_spectrum
+```
+
+## Transforms
+
+```@docs
+kramers_kronig
+kubelka_munk
+tauc_plot
+snv
+beer_lambert
+urbach_tail
+thickness_from_fringes
+reflectance_to_absorbance
+absorbance_to_reflectance
+transmittance_to_reflectance
 ```
 
 ## Unit Conversions
