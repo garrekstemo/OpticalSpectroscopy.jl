@@ -517,6 +517,50 @@ Random.seed!(42)
         @test size(d) == (1, length(wavelength))
     end
 
+    @testset "fit_global guards against intractable all-wavelength fits" begin
+        t = collect(-2.0:0.5:20.0)
+
+        # 300-wavelength matrix: default (fit every column) must refuse with
+        # a helpful error instead of building a multi-thousand-parameter fit.
+        wl_big = collect(range(500.0, 700.0, length=300))
+        data_big = zeros(length(t), length(wl_big))
+        for (j, wl) in enumerate(wl_big)
+            amp = 0.5 + 0.4 * sin((wl - 500) / 200 * pi)
+            for (i, ti) in enumerate(t)
+                data_big[i, j] = OpticalSpectroscopy._exp_decay_irf_conv(ti, amp, 5.0, 0.0, 0.3) + 0.01
+            end
+        end
+        matrix_big = TAMatrix(t, wl_big, data_big)
+
+        @test_throws ArgumentError fit_global(matrix_big; n_exp=1)
+        err = try
+            fit_global(matrix_big; n_exp=1)
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("300", err.msg)
+        @test occursin("max_wavelengths", err.msg)
+        @test occursin("λ", err.msg)
+
+        # λ=subset on the same matrix still works
+        fit_sub = fit_global(matrix_big; n_exp=1, irf_width=0.2,
+                             λ=[550.0, 600.0, 650.0])
+        @test fit_sub isa GlobalFitResult
+        @test length(fit_sub.wavelengths) == 3
+        @test fit_sub.taus[1] ≈ 5.0 atol=1.0
+
+        # max_wavelengths override is respected (lowering the threshold)
+        wl_small = collect(range(500.0, 700.0, length=5))
+        data_small = data_big[:, [1, 75, 150, 225, 300]]
+        matrix_small = TAMatrix(t, wl_small, data_small)
+        @test_throws ArgumentError fit_global(matrix_small; n_exp=1, max_wavelengths=3)
+        # ... and raising it allows the fit through
+        fit_small = fit_global(matrix_small; n_exp=1, irf_width=0.2, max_wavelengths=10)
+        @test fit_small isa GlobalFitResult
+        @test length(fit_small.wavelengths) == 5
+    end
+
     @testset "predict(GlobalFitResult, TAMatrix) with wavelength subset" begin
         t = collect(-2.0:0.2:30.0)
         wavelength = collect(500.0:20.0:700.0)  # 11 wavelengths
