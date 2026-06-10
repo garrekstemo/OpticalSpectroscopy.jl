@@ -55,11 +55,13 @@ end
 
 function _width_guess(fwhp::Real, model::Function)
     if model === lorentzian
-        return fwhp
+        return fwhp                            # Γ is the FWHM
     elseif model === gaussian
-        return fwhp / (2 * sqrt(2 * log(2)))
-    elseif model in (pseudo_voigt, voigt)
-        return fwhp / 2
+        return fwhp / (2 * sqrt(2 * log(2)))   # σ is the std dev
+    elseif model === pseudo_voigt
+        return fwhp / 2                        # σ is the HWHM of both components
+    elseif model === voigt
+        return fwhp / (2 * sqrt(2 * log(2)))   # σ is the Gaussian std dev
     elseif model === fano
         return fwhp
     else

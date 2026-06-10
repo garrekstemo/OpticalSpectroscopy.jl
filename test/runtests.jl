@@ -1661,6 +1661,57 @@ Random.seed!(42)
         @test occursin("PLMap", String(take!(buf2)))
     end
 
+    @testset "fit_map FWHM conversion per model" begin
+        # Each lineshape parameterizes width differently; the FWHM summary
+        # array must convert correctly for the model actually used.
+        # Reference FWHM is measured numerically from the noiseless profile.
+        nx, ny, np = 3, 3, 200
+        pixel = collect(1.0:np)
+        xs = collect(1.0:nx)
+        ys = collect(1.0:ny)
+
+        function make_map(profile::Vector{Float64})
+            spectra = zeros(nx, ny, np)
+            for ix in 1:nx, iy in 1:ny
+                spectra[ix, iy, :] .= profile .+ 0.05
+            end
+            intens = dropdims(sum(spectra; dims=3); dims=3)
+            return PLMap(intens, spectra, xs, ys, pixel)
+        end
+
+        # pseudo_voigt: σ is the HWHM of BOTH components -> FWHM = 2σ exactly
+        # (both components share the same FWHM, so their mix does too).
+        σ_pv = 10.0
+        m_pv = make_map(pseudo_voigt([100.0, 100.0, σ_pv, 0.5], pixel))
+        res_pv = fit_map(m_pv; model=pseudo_voigt)
+        @test res_pv.n_converged == nx * ny
+        @test all(isapprox.(res_pv.centers[:, :, 1], 100.0; atol=0.1))
+        @test all(isapprox.(res_pv.fwhms[:, :, 1], 2 * σ_pv; rtol=0.02))
+
+        # gaussian: σ is the standard deviation -> FWHM = 2√(2ln2)·σ
+        σ_g = 4.0
+        m_g = make_map(gaussian([5.0, 100.0, σ_g], pixel))
+        res_g = fit_map(m_g; model=gaussian)
+        @test res_g.n_converged == nx * ny
+        @test all(isapprox.(res_g.fwhms[:, :, 1], 2 * sqrt(2 * log(2)) * σ_g; rtol=0.02))
+
+        # lorentzian: Γ is already the FWHM
+        Γ = 12.0
+        m_l = make_map(lorentzian([5.0, 100.0, Γ], pixel))
+        res_l = fit_map(m_l; model=lorentzian)
+        @test res_l.n_converged == nx * ny
+        @test all(isapprox.(res_l.fwhms[:, :, 1], Γ; rtol=0.02))
+
+        # voigt: σ Gaussian std dev + γ Lorentzian HWHM -> Thompson approximation.
+        # Compare against the numerically measured FWHM of the input profile.
+        profile_v = voigt([5.0, 100.0, 4.0, 3.0], pixel)
+        fwhm_v_true = calc_fwhm(pixel, profile_v; smooth_window=0).fwhm
+        m_v = make_map(profile_v)
+        res_v = fit_map(m_v; model=voigt)
+        @test res_v.n_converged == nx * ny
+        @test all(isapprox.(res_v.fwhms[:, :, 1], fwhm_v_true; rtol=0.02))
+    end
+
     @testset "PLMap pixel_range metadata propagation" begin
         # Build a PLMap where metadata records a specific pixel_range — this mimics
         # what a file loader does when called with `pixel_range=(p1, p2)`. Operations

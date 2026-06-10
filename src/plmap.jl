@@ -441,6 +441,31 @@ heatmap(m.x, m.y, result.fwhms)
 result[10, 15]  # MultiPeakFitResult or nothing
 ```
 """
+# FWHM of a fitted peak, converted according to the model actually used.
+# Width parameterizations differ across CurveFitModels lineshapes:
+#   lorentzian    Γ is already the FWHM (param :fwhm)
+#   gaussian      σ is the standard deviation        -> FWHM = 2√(2ln2)·σ
+#   pseudo_voigt  σ is the HWHM of BOTH components   -> FWHM = 2σ
+#   voigt         σ Gaussian std dev, γ Lorentzian HWHM -> Thompson et al. (1987)
+#   fano          asymmetric lineshape, FWHM not well defined -> NaN
+function _peak_fwhm(pk::PeakFitResult)
+    if haskey(pk, :fwhm)
+        return abs(pk[:fwhm].value)
+    elseif pk.model == "pseudo_voigt" && haskey(pk, :sigma)
+        return 2 * abs(pk[:sigma].value)
+    elseif haskey(pk, :sigma) && haskey(pk, :gamma)
+        # Voigt FWHM approximation (Thompson et al., 1987)
+        fwhm_g = abs(pk[:sigma].value) * 2 * sqrt(2 * log(2))
+        fwhm_l = 2 * abs(pk[:gamma].value)
+        return 0.5346 * fwhm_l + sqrt(0.2166 * fwhm_l^2 + fwhm_g^2)
+    elseif haskey(pk, :sigma)
+        # gaussian (and unknown models exposing :sigma): treat as std dev
+        return abs(pk[:sigma].value) * 2 * sqrt(2 * log(2))
+    else
+        return NaN
+    end
+end
+
 function fit_map(m::PLMap;
                  model::Function = gaussian,
                  n_peaks::Int = 1,
@@ -565,16 +590,7 @@ function fit_map(m::PLMap;
                 if haskey(pk, :center)
                     centers[ix, iy, pk_idx] = pk[:center].value
                 end
-                if haskey(pk, :fwhm)
-                    fwhms[ix, iy, pk_idx] = pk[:fwhm].value
-                elseif haskey(pk, :sigma) && haskey(pk, :gamma)
-                    # Voigt FWHM approximation (Thompson et al., 1987)
-                    fwhm_g = pk[:sigma].value * 2 * sqrt(2 * log(2))
-                    fwhm_l = 2 * abs(pk[:gamma].value)
-                    fwhms[ix, iy, pk_idx] = 0.5346 * fwhm_l + sqrt(0.2166 * fwhm_l^2 + fwhm_g^2)
-                elseif haskey(pk, :sigma)
-                    fwhms[ix, iy, pk_idx] = pk[:sigma].value * 2 * sqrt(2 * log(2))
-                end
+                fwhms[ix, iy, pk_idx] = _peak_fwhm(pk)
                 if haskey(pk, :amplitude)
                     amplitudes[ix, iy, pk_idx] = pk[:amplitude].value
                 end
