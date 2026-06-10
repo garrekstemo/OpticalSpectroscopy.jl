@@ -477,6 +477,50 @@ Random.seed!(42)
         @test size(d) == (1, length(wavelength))
     end
 
+    @testset "predict(GlobalFitResult, TAMatrix) with wavelength subset" begin
+        t = collect(-2.0:0.2:30.0)
+        wavelength = collect(500.0:20.0:700.0)  # 11 wavelengths
+        tau_true = 5.0
+        sigma_true = 0.3
+
+        data = zeros(length(t), length(wavelength))
+        for (j, wl) in enumerate(wavelength)
+            amp = 0.5 * sin((wl - 500) / 200 * pi)
+            for (i, ti) in enumerate(t)
+                data[i, j] = OpticalSpectroscopy._exp_decay_irf_conv(ti, amp, tau_true, 0.0, sigma_true) + 0.01
+            end
+        end
+        matrix = TAMatrix(t, wavelength, data)
+
+        # Fit a subset at the HIGH end of the grid: full-grid indices (7, 9, 11)
+        # exceed the subset column count, so any full-grid indexing bug
+        # surfaces as a BoundsError or wrong columns.
+        λ_subset = [620.0, 660.0, 700.0]
+        fit = fit_global(matrix; n_exp=1, irf_width=0.2, λ=λ_subset)
+        @test fit.wavelengths ≈ λ_subset
+
+        recon = predict(fit, matrix)
+        @test recon isa TAMatrix
+        @test size(recon.data) == (length(t), length(λ_subset))
+        @test recon.wavelength ≈ λ_subset
+        @test recon.time == t
+        @test all(isfinite, recon.data)
+
+        # Each column must be the model curve for the matching fitted trace
+        for (j, _) in enumerate(λ_subset)
+            expected = [OpticalSpectroscopy._multiexp_irf_conv(
+                            ti, fit.taus, fit.amplitudes[j, :], fit.t0,
+                            fit.sigma, fit.offsets[j]) for ti in t]
+            @test recon.data[:, j] ≈ expected
+        end
+
+        # Reconstruction should track the noiseless input closely
+        full_idx = [OpticalSpectroscopy._find_nearest_idx(wavelength, wl) for wl in λ_subset]
+        for (j, fi) in enumerate(full_idx)
+            @test maximum(abs.(recon.data[:, j] .- data[:, fi])) < 0.02
+        end
+    end
+
     @testset "das accessor - error without wavelengths" begin
         r = GlobalFitResult(
             [5.0], 0.25, 0.1,

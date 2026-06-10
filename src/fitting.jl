@@ -551,20 +551,22 @@ function predict(fit::GlobalFitResult, traces::Vector{TATrace})
 end
 
 function predict(fit::GlobalFitResult, matrix::TAMatrix)
-    wavelengths = something(fit.wavelengths, matrix.wavelength)
+    # The reconstruction lives on the FITTED wavelength axis, which may be a
+    # subset of the matrix grid (fit_global(matrix; λ=subset)). Column j of
+    # the output corresponds to fit.wavelengths[j] / fit.amplitudes[j, :].
+    wavelengths = collect(Float64, something(fit.wavelengths, matrix.wavelength))
     reconstructed = Matrix{Float64}(undef, length(matrix.time), length(wavelengths))
 
-    for (j, wl) in enumerate(wavelengths)
-        wl_idx = _find_nearest_idx(matrix.wavelength, wl)
+    for j in eachindex(wavelengths)
         amps = fit.amplitudes[j, :]
         for (i, t) in enumerate(matrix.time)
-            reconstructed[i, wl_idx] = _multiexp_irf_conv(t, fit.taus, amps, fit.t0, fit.sigma, fit.offsets[j])
+            reconstructed[i, j] = _multiexp_irf_conv(t, fit.taus, amps, fit.t0, fit.sigma, fit.offsets[j])
         end
     end
 
     metadata = copy(matrix.metadata)
     metadata[:reconstructed] = true
-    return TAMatrix(matrix.time, matrix.wavelength, reconstructed, metadata)
+    return TAMatrix(matrix.time, wavelengths, reconstructed, metadata)
 end
 
 
