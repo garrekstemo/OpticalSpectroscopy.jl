@@ -106,7 +106,17 @@ function _peaks_to_p0(detected::Vector{PeakInfo}, x, y, model::Function; baselin
     return p0
 end
 
-function _build_multipeak_model(peak_fn::Function, n_peaks::Int, baseline_order::Int, npp::Int)
+# Normalization constants for the polynomial baseline basis. These are fixed
+# by the FIT region; every later evaluation (predict on a wider grid, etc.)
+# must reuse them, since the fitted baseline coefficients are tied to them.
+function _baseline_norm(x::AbstractVector)
+    x_mid = (x[1] + x[end]) / 2
+    x_range = max(x[end] - x[1], one(eltype(x)))
+    return x_mid, x_range
+end
+
+function _build_multipeak_model(peak_fn::Function, n_peaks::Int, baseline_order::Int, npp::Int,
+                                x_mid::Real, x_range::Real)
     function composite_model(p, x)
         y = similar(p, length(x))
         fill!(y, zero(eltype(p)))
@@ -118,8 +128,6 @@ function _build_multipeak_model(peak_fn::Function, n_peaks::Int, baseline_order:
         end
 
         baseline_start = n_peaks * npp + 1
-        x_mid = (x[1] + x[end]) / 2
-        x_range = max(x[end] - x[1], one(eltype(x)))
         x_norm = (x .- x_mid) ./ x_range
 
         for j in 0:baseline_order
@@ -133,10 +141,9 @@ function _build_multipeak_model(peak_fn::Function, n_peaks::Int, baseline_order:
 end
 
 function _eval_baseline(coef_vec::AbstractVector, x::AbstractVector,
-                        n_peaks::Int, npp::Int, baseline_order::Int)
+                        n_peaks::Int, npp::Int, baseline_order::Int,
+                        x_mid::Real, x_range::Real)
     baseline_start = n_peaks * npp + 1
-    x_mid = (x[1] + x[end]) / 2
-    x_range = max(x[end] - x[1], one(eltype(x)))
     x_norm = (x .- x_mid) ./ x_range
 
     y = zeros(eltype(coef_vec), length(x))
@@ -211,7 +218,8 @@ function fit_peaks(x::AbstractVector, y::AbstractVector;
         p0_use = _peaks_to_p0(detected, x_f, y_f, model; baseline_order=baseline_order)
     end
 
-    composite = _build_multipeak_model(model, n_peaks, baseline_order, npp)
+    x_mid, x_range = _baseline_norm(x_f)
+    composite = _build_multipeak_model(model, n_peaks, baseline_order, npp, x_mid, x_range)
     prob = NonlinearCurveFitProblem(composite, p0_use, x_f, y_f)
     sol = solve(prob)
 
@@ -263,7 +271,8 @@ function fit_peaks(x::AbstractVector, y::AbstractVector;
         peak_results, bl_params, baseline_order,
         r_squared, ss_res, mse_val,
         length(x_f), region, sample_id,
-        collect(p), model, npp, x_f, y_f
+        collect(p), model, npp, x_f, y_f,
+        x_mid, x_range
     )
 end
 
@@ -314,12 +323,14 @@ end
 # =============================================================================
 
 function predict(r::MultiPeakFitResult)
-    composite = _build_multipeak_model(r._peak_fn, length(r.peaks), r.baseline_order, r._n_peak_params)
+    composite = _build_multipeak_model(r._peak_fn, length(r.peaks), r.baseline_order,
+                                       r._n_peak_params, r._x_mid, r._x_range)
     return composite(r._coef, r._x)
 end
 
 function predict(r::MultiPeakFitResult, x::AbstractVector)
-    composite = _build_multipeak_model(r._peak_fn, length(r.peaks), r.baseline_order, r._n_peak_params)
+    composite = _build_multipeak_model(r._peak_fn, length(r.peaks), r.baseline_order,
+                                       r._n_peak_params, r._x_mid, r._x_range)
     return composite(r._coef, collect(Float64, x))
 end
 
@@ -352,11 +363,13 @@ the baseline is evaluated on the original fit region. Pass a custom `x` to
 evaluate on a different range.
 """
 function predict_baseline(r::MultiPeakFitResult)
-    return _eval_baseline(r._coef, r._x, length(r.peaks), r._n_peak_params, r.baseline_order)
+    return _eval_baseline(r._coef, r._x, length(r.peaks), r._n_peak_params, r.baseline_order,
+                          r._x_mid, r._x_range)
 end
 
 function predict_baseline(r::MultiPeakFitResult, x::AbstractVector)
-    return _eval_baseline(r._coef, collect(Float64, x), length(r.peaks), r._n_peak_params, r.baseline_order)
+    return _eval_baseline(r._coef, collect(Float64, x), length(r.peaks), r._n_peak_params,
+                          r.baseline_order, r._x_mid, r._x_range)
 end
 
 function residuals(r::MultiPeakFitResult)

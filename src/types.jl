@@ -579,6 +579,10 @@ struct MultiPeakFitResult
     _n_peak_params::Int
     _x::Vector{Float64}
     _y::Vector{Float64}
+    # Baseline-basis normalization fixed by the fit region; reused for every
+    # later evaluation (predict / predict_baseline on arbitrary grids).
+    _x_mid::Float64
+    _x_range::Float64
 end
 
 Base.getindex(r::MultiPeakFitResult, i::Int) = r.peaks[i]

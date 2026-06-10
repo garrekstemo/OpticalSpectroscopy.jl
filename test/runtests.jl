@@ -245,6 +245,46 @@ Random.seed!(42)
         @test length(res) == result.npoints
     end
 
+    @testset "predict/predict_baseline use the fit-region baseline basis" begin
+        # The polynomial baseline basis is normalized by the FIT region's
+        # midpoint and span. Evaluating on a different x grid must reuse that
+        # normalization, otherwise the baseline silently changes.
+        x_full = collect(1900.0:0.5:2200.0)
+        y_full = @. 0.5 / (1 + ((x_full - 2050.0) / 10.0)^2) +
+                    0.02 + 0.0005 * (x_full - 2000.0)   # sloped baseline
+
+        region = (2000.0, 2100.0)
+        r = fit_peaks(x_full, y_full, region; n_peaks=1)
+        @test r.r_squared > 0.999
+
+        in_region = region[1] .<= x_full .<= region[2]
+        x_fit = x_full[in_region]
+
+        # Reference: evaluation on the original fit grid
+        y_ref = predict(r)
+        bl_ref = predict_baseline(r)
+
+        # Asymmetric wider grid (different midpoint AND span) containing the
+        # fit-region points exactly
+        x_wide = collect(1950.0:0.5:2180.0)
+        match = [findfirst(==(xv), x_wide) for xv in x_fit]
+        @test !any(isnothing, match)
+
+        y_wide = predict(r, x_wide)
+        bl_wide = predict_baseline(r, x_wide)
+
+        @test y_wide[match] ≈ y_ref
+        @test bl_wide[match] ≈ bl_ref
+
+        # The fitted linear baseline extrapolates the true baseline
+        bl_true_wide = @. 0.02 + 0.0005 * (x_wide - 2000.0)
+        @test maximum(abs.(bl_wide .- bl_true_wide)) < 0.01
+
+        # Same-grid evaluation must equal the no-argument form
+        @test predict(r, x_fit) ≈ y_ref
+        @test predict_baseline(r, x_fit) ≈ bl_ref
+    end
+
     @testset "Semantic accessors - MultiPeakFitResult" begin
         x = collect(1900.0:0.5:2200.0)
         y = @. 0.5 / (1 + ((x - 2050.0) / 10.0)^2) + 0.01
