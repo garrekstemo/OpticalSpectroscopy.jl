@@ -2,7 +2,7 @@ using Test
 using OpticalSpectroscopy
 using Unitful
 using Statistics
-using LinearAlgebra: rank
+using LinearAlgebra
 using JSON
 using Aqua
 import Random
@@ -617,13 +617,28 @@ Random.seed!(42)
 
     @testset "Spectroscopy utilities - normalize" begin
         x = [1.0, 2.0, -3.0, 0.5]
-        xn = normalize(x)
+        xn = OpticalSpectroscopy.normalize(x)
         @test maximum(abs.(xn)) ≈ 1.0
         @test xn[3] ≈ -1.0
 
         # Zero vector
         z = zeros(5)
-        @test normalize(z) == zeros(5)
+        @test OpticalSpectroscopy.normalize(z) == zeros(5)
+    end
+
+    @testset "No export collision with LinearAlgebra.normalize" begin
+        # `normalize` must NOT be exported: it collides with
+        # LinearAlgebra.normalize in any session that loads both packages.
+        @test :normalize ∉ names(OpticalSpectroscopy)
+
+        # With `using LinearAlgebra` at the top of this file, the bare name
+        # must resolve to LinearAlgebra.normalize (unit 2-norm), proving the
+        # two packages coexist.
+        v = normalize([3.0, 4.0])
+        @test v ≈ [0.6, 0.8]
+
+        # The package function remains accessible fully qualified.
+        @test OpticalSpectroscopy.normalize([2.0, -4.0]) == [0.5, -1.0]
     end
 
     @testset "Spectroscopy utilities - time_index" begin

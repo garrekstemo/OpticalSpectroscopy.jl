@@ -61,7 +61,7 @@ format_results
 ## Spectroscopy Utilities
 
 ```@docs
-normalize
+OpticalSpectroscopy.normalize
 calc_fwhm
 transmittance_to_absorbance
 absorbance_to_transmittance

@@ -90,7 +90,10 @@ export correct_baseline
 # ==========================================================================
 # Exports — Spectroscopy utilities
 # ==========================================================================
-export normalize, normalize_intensity, subtract_spectrum
+# NOTE: `normalize` (max-abs scaling) is deliberately NOT exported — it would
+# collide with LinearAlgebra.normalize in any session loading both packages.
+# Use `OpticalSpectroscopy.normalize`, or the explicit variants below.
+export normalize_intensity, subtract_spectrum
 export smooth_data, calc_fwhm
 export transmittance_to_absorbance, absorbance_to_transmittance
 export savitzky_golay_smooth, derivative
