@@ -472,10 +472,10 @@ function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float
 end
 
 """
-    fit_global(matrix::TAMatrix; n_exp=1, irf_width=0.15, λ=nothing,
+    fit_global(matrix::TimeResolvedMatrix; n_exp=1, irf_width=0.15, λ=nothing,
                max_wavelengths=200) -> GlobalFitResult
 
-Global analysis of a TAMatrix, extracting traces at each wavelength.
+Global analysis of a TimeResolvedMatrix, extracting traces at each wavelength.
 
 Returns a `GlobalFitResult` with the `wavelengths` field populated,
 enabling decay-associated spectra (DAS) via `das(result)`.
@@ -503,7 +503,7 @@ spectra = das(result)  # n_exp × n_wavelengths matrix
 result = fit_global(matrix; n_exp=2, λ=range(450, 750, length=50))
 ```
 """
-function fit_global(matrix::TAMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=nothing,
+function fit_global(matrix::TimeResolvedMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=nothing,
                     max_wavelengths::Int=200)
     if isnothing(λ)
         wavelengths = matrix.wavelength
@@ -572,7 +572,7 @@ function predict(fit::GlobalFitResult, traces::Vector{KineticTrace})
     return curves
 end
 
-function predict(fit::GlobalFitResult, matrix::TAMatrix)
+function predict(fit::GlobalFitResult, matrix::TimeResolvedMatrix)
     # The reconstruction lives on the FITTED wavelength axis, which may be a
     # subset of the matrix grid (fit_global(matrix; λ=subset)). Column j of
     # the output corresponds to fit.wavelengths[j] / fit.amplitudes[j, :].
@@ -588,7 +588,7 @@ function predict(fit::GlobalFitResult, matrix::TAMatrix)
 
     metadata = copy(matrix.metadata)
     metadata[:reconstructed] = true
-    return TAMatrix(matrix.time, wavelengths, reconstructed, metadata)
+    return TimeResolvedMatrix(matrix.time, wavelengths, reconstructed, metadata)
 end
 
 

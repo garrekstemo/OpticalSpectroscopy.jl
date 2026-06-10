@@ -19,7 +19,7 @@ Random.seed!(42)
     @testset "Type hierarchy" begin
         @test KineticTrace <: AbstractSpectroscopyData
         @test TASpectrum <: AbstractSpectroscopyData
-        @test TAMatrix <: AbstractSpectroscopyData
+        @test TimeResolvedMatrix <: AbstractSpectroscopyData
     end
 
     @testset "Constructor shape validation" begin
@@ -37,22 +37,22 @@ Random.seed!(42)
         @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3], NaN, Dict{Symbol,Any}())
         @test TASpectrum([2000.0, 2050.0], [0.1, 0.2]) isa TASpectrum
 
-        # TAMatrix: data must be (n_time, n_wavelength)
+        # TimeResolvedMatrix: data must be (n_time, n_wavelength)
         time = collect(0.0:1.0:10.0)        # 11 points
         wl = collect(500.0:10.0:650.0)      # 16 points
         good = zeros(length(time), length(wl))
-        @test TAMatrix(time, wl, good) isa TAMatrix
+        @test TimeResolvedMatrix(time, wl, good) isa TimeResolvedMatrix
 
         # transposed data: error must name the expected shape and suggest permutedims
         bad_t = zeros(length(wl), length(time))
-        @test_throws ArgumentError TAMatrix(time, wl, bad_t)
-        err_t = try TAMatrix(time, wl, bad_t) catch e; e end
+        @test_throws ArgumentError TimeResolvedMatrix(time, wl, bad_t)
+        err_t = try TimeResolvedMatrix(time, wl, bad_t) catch e; e end
         @test occursin("(16, 11)", err_t.msg)
         @test occursin("(11, 16)", err_t.msg)
         @test occursin("permutedims", err_t.msg)
 
         # arbitrary wrong shape also throws (positional path)
-        @test_throws ArgumentError TAMatrix(time, wl, zeros(3, 4), Dict{Symbol,Any}())
+        @test_throws ArgumentError TimeResolvedMatrix(time, wl, zeros(3, 4), Dict{Symbol,Any}())
     end
 
     @testset "AbstractSpectroscopyData interface - KineticTrace" begin
@@ -99,11 +99,11 @@ Random.seed!(42)
         @test !(SweepData <: AbstractSpectroscopyData)
     end
 
-    @testset "AbstractSpectroscopyData interface - TAMatrix" begin
+    @testset "AbstractSpectroscopyData interface - TimeResolvedMatrix" begin
         time = [0.0, 1.0, 2.0]
         wavelength = [800.0, 850.0, 900.0]
         data = rand(3, 3)
-        matrix = TAMatrix(time, wavelength, data)
+        matrix = TimeResolvedMatrix(time, wavelength, data)
 
         @test xdata(matrix) == wavelength
         @test ydata(matrix) == time
@@ -114,7 +114,7 @@ Random.seed!(42)
         @test is_matrix(matrix) == true
 
         # Test wavenumber detection
-        matrix_wn = TAMatrix(time, [1900.0, 2000.0, 2100.0], data)
+        matrix_wn = TimeResolvedMatrix(time, [1900.0, 2000.0, 2100.0], data)
         @test xlabel(matrix_wn) == "Wavenumber (cm⁻¹)"
     end
 
@@ -139,11 +139,11 @@ Random.seed!(42)
         @test npoints(spec) == 3
         @test title(spec) == "spec.lvm"
 
-        # TAMatrix
+        # TimeResolvedMatrix
         time = [0.0, 1.0, 2.0]
         wavelength = [800.0, 850.0, 900.0, 950.0]
         data = rand(3, 4)
-        matrix = TAMatrix(time, wavelength, data;
+        matrix = TimeResolvedMatrix(time, wavelength, data;
                           metadata=Dict{Symbol,Any}(:source => "broadband-TA/"))
         @test source_file(matrix) == "broadband-TA/"
         @test npoints(matrix) == (3, 4)
@@ -162,21 +162,21 @@ Random.seed!(42)
         @test signal(spec) === spec.signal
     end
 
-    @testset "Semantic accessors - TAMatrix" begin
+    @testset "Semantic accessors - TimeResolvedMatrix" begin
         time = [0.0, 1.0, 2.0]
         wl = [800.0, 850.0, 900.0]
         data = rand(3, 3)
-        matrix = TAMatrix(time, wl, data)
+        matrix = TimeResolvedMatrix(time, wl, data)
         @test wavelength(matrix) === matrix.wavelength
         @test delay(matrix) === matrix.time
         @test signal(matrix) === matrix.data
     end
 
-    @testset "TAMatrix indexing" begin
+    @testset "TimeResolvedMatrix indexing" begin
         time = [0.0, 1.0, 2.0, 3.0, 4.0]
         wavelength = [700.0, 750.0, 800.0, 850.0]
         data = rand(5, 4)
-        matrix = TAMatrix(time, wavelength, data)
+        matrix = TimeResolvedMatrix(time, wavelength, data)
 
         # Extract KineticTrace at wavelength
         trace = matrix[λ=800]
@@ -521,7 +521,7 @@ Random.seed!(42)
         @test OpticalSpectroscopy.n_exp(result) == 2
     end
 
-    @testset "Global fitting - TAMatrix dispatch" begin
+    @testset "Global fitting - TimeResolvedMatrix dispatch" begin
         t = collect(-2.0:0.2:30.0)
         wavelength = collect(500.0:20.0:700.0)
         tau_true = 5.0
@@ -535,7 +535,7 @@ Random.seed!(42)
             end
         end
 
-        matrix = TAMatrix(t, wavelength, data)
+        matrix = TimeResolvedMatrix(t, wavelength, data)
         result = fit_global(matrix; n_exp=1, irf_width=0.2)
 
         @test result isa GlobalFitResult
@@ -563,7 +563,7 @@ Random.seed!(42)
                 data_big[i, j] = OpticalSpectroscopy._exp_decay_irf_conv(ti, amp, 5.0, 0.0, 0.3) + 0.01
             end
         end
-        matrix_big = TAMatrix(t, wl_big, data_big)
+        matrix_big = TimeResolvedMatrix(t, wl_big, data_big)
 
         @test_throws ArgumentError fit_global(matrix_big; n_exp=1)
         err = try
@@ -586,7 +586,7 @@ Random.seed!(42)
         # max_wavelengths override is respected (lowering the threshold)
         wl_small = collect(range(500.0, 700.0, length=5))
         data_small = data_big[:, [1, 75, 150, 225, 300]]
-        matrix_small = TAMatrix(t, wl_small, data_small)
+        matrix_small = TimeResolvedMatrix(t, wl_small, data_small)
         @test_throws ArgumentError fit_global(matrix_small; n_exp=1, max_wavelengths=3)
         # ... and raising it allows the fit through
         fit_small = fit_global(matrix_small; n_exp=1, irf_width=0.2, max_wavelengths=10)
@@ -594,7 +594,7 @@ Random.seed!(42)
         @test length(fit_small.wavelengths) == 5
     end
 
-    @testset "predict(GlobalFitResult, TAMatrix) with wavelength subset" begin
+    @testset "predict(GlobalFitResult, TimeResolvedMatrix) with wavelength subset" begin
         t = collect(-2.0:0.2:30.0)
         wavelength = collect(500.0:20.0:700.0)  # 11 wavelengths
         tau_true = 5.0
@@ -607,7 +607,7 @@ Random.seed!(42)
                 data[i, j] = OpticalSpectroscopy._exp_decay_irf_conv(ti, amp, tau_true, 0.0, sigma_true) + 0.01
             end
         end
-        matrix = TAMatrix(t, wavelength, data)
+        matrix = TimeResolvedMatrix(t, wavelength, data)
 
         # Fit a subset at the HIGH end of the grid: full-grid indices (7, 9, 11)
         # exceed the subset column count, so any full-grid indexing bug
@@ -617,7 +617,7 @@ Random.seed!(42)
         @test fit.wavelengths ≈ λ_subset
 
         recon = predict(fit, matrix)
-        @test recon isa TAMatrix
+        @test recon isa TimeResolvedMatrix
         @test size(recon.data) == (length(t), length(λ_subset))
         @test recon.wavelength ≈ λ_subset
         @test recon.time == t
@@ -1199,10 +1199,10 @@ Random.seed!(42)
 
             data = signal .+ background
             metadata = Dict{Symbol,Any}(:source => "test")
-            matrix = TAMatrix(time, wavelength, data, metadata)
+            matrix = TimeResolvedMatrix(time, wavelength, data, metadata)
 
             corrected = subtract_background(matrix)
-            @test corrected isa TAMatrix
+            @test corrected isa TimeResolvedMatrix
             @test size(corrected.data) == size(matrix.data)
             @test corrected.metadata[:background_subtracted] == true
             @test haskey(corrected.metadata, :baseline_t_range)
@@ -1239,7 +1239,7 @@ Random.seed!(42)
             end
 
             metadata = Dict{Symbol,Any}(:source => "synthetic")
-            matrix = TAMatrix(time, wavelength, data, metadata)
+            matrix = TimeResolvedMatrix(time, wavelength, data, metadata)
 
             cal = detect_chirp(matrix; order=2, reference=ref_λ, smooth_window=7, bin_width=4)
             @test cal isa ChirpCalibration
@@ -1273,7 +1273,7 @@ Random.seed!(42)
             end
 
             metadata = Dict{Symbol,Any}(:source => "synthetic")
-            matrix = TAMatrix(time, wavelength, data, metadata)
+            matrix = TimeResolvedMatrix(time, wavelength, data, metadata)
 
             cal = ChirpCalibration(
                 collect(wavelength),
@@ -1286,7 +1286,7 @@ Random.seed!(42)
             )
 
             corrected = correct_chirp(matrix, cal)
-            @test corrected isa TAMatrix
+            @test corrected isa TimeResolvedMatrix
             @test size(corrected.data) == size(matrix.data)
             @test corrected.metadata[:chirp_corrected] == true
 
@@ -1354,7 +1354,7 @@ Random.seed!(42)
             wavelength = collect(range(500.0, 700.0, length=n_wl))
             data = zeros(n_time, n_wl)
             metadata = Dict{Symbol,Any}(:source => "flat")
-            matrix = TAMatrix(time, wavelength, data, metadata)
+            matrix = TimeResolvedMatrix(time, wavelength, data, metadata)
 
             corrected = subtract_background(matrix)
             @test all(corrected.data .== 0.0)
@@ -1379,7 +1379,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
 
             cal = detect_chirp(matrix; method=:threshold, order=1,
                                reference=ref_λ, smooth_window=7, bin_width=4)
@@ -1408,7 +1408,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; method=:threshold, order=1,
                                reference=ref_λ, smooth_window=7, bin_width=4)
 
@@ -1425,7 +1425,7 @@ Random.seed!(42)
             time = collect(range(-5.0, 15.0, length=n_time))
             wavelength = collect(range(500.0, 700.0, length=n_wl))
             data = rand(n_time, n_wl)
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
 
             @test_throws ArgumentError detect_chirp(matrix; order=0)
             @test_throws ArgumentError detect_chirp(matrix; bin_width=0)
@@ -1453,7 +1453,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; smooth_window=10, order=1, bin_width=4)
             @test cal isa ChirpCalibration
             @test cal.metadata[:smooth_window] == 11
@@ -1479,7 +1479,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; order=1, reference=ref_λ, smooth_window=7, bin_width=4)
 
             poly = polynomial(cal)
@@ -1506,7 +1506,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
 
             # Exact calibration — no detection noise
             cal = ChirpCalibration(
@@ -1541,11 +1541,11 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; order=2, reference=ref_λ, bin_width=4)
             corrected = correct_chirp(matrix, cal)
 
-            @test corrected isa TAMatrix
+            @test corrected isa TimeResolvedMatrix
             @test corrected.metadata[:chirp_corrected] == true
 
             # After correction, onset times should be more aligned
@@ -1605,7 +1605,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; order=1, bin_width=4)
 
             @test haskey(cal.metadata, :mad_threshold)
@@ -1635,8 +1635,8 @@ Random.seed!(42)
         noise = 0.02 * randn(50, 30)
         noisy_data = signal .+ noise
 
-        @testset "singular_values - TAMatrix" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+        @testset "singular_values - TimeResolvedMatrix" begin
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
             sv = singular_values(matrix)
             @test length(sv) == min(50, 30)
             @test issorted(sv, rev=true)
@@ -1649,11 +1649,11 @@ Random.seed!(42)
             @test issorted(sv, rev=true)
         end
 
-        @testset "svd_filter - TAMatrix denoising" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+        @testset "svd_filter - TimeResolvedMatrix denoising" begin
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
             filtered = svd_filter(matrix; n_components=2)
 
-            @test filtered isa TAMatrix
+            @test filtered isa TimeResolvedMatrix
             @test size(filtered.data) == size(matrix.data)
             @test filtered.time == matrix.time
             @test filtered.wavelength == matrix.wavelength
@@ -1676,7 +1676,7 @@ Random.seed!(42)
         end
 
         @testset "svd_filter - n_components=1 keeps dominant component" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
             filtered = svd_filter(matrix; n_components=1)
 
             # Rank-1 approximation
@@ -1684,7 +1684,7 @@ Random.seed!(42)
         end
 
         @testset "svd_filter - full rank preserves data" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
             max_comp = min(size(noisy_data)...)
             filtered = svd_filter(matrix; n_components=max_comp)
 
@@ -1692,7 +1692,7 @@ Random.seed!(42)
         end
 
         @testset "svd_filter - input validation" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
 
             @test_throws ArgumentError svd_filter(matrix; n_components=0)
             @test_throws ArgumentError svd_filter(matrix; n_components=100)

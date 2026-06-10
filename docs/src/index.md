@@ -2,7 +2,7 @@
 
 **Spectroscopy analysis for Julia — steady-state and ultrafast.**
 
-For steady-state work, OpticalSpectroscopy provides peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`KineticTrace`, `TASpectrum`, `TAMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
+For steady-state work, OpticalSpectroscopy provides peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`KineticTrace`, `TASpectrum`, `TimeResolvedMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
 
 ## Installation
 
@@ -39,7 +39,7 @@ for (j, λ) in pairs(matrix_wl)
 end
 matrix_data .+= 0.005 .* randn(size(matrix_data))
 
-matrix = TAMatrix(matrix_time, matrix_wl, matrix_data)
+matrix = TimeResolvedMatrix(matrix_time, matrix_wl, matrix_data)
 gfit = fit_global(matrix; n_exp=2)
 spectra = das(gfit)   # n_exp × n_wavelengths decay-associated spectra
 
@@ -64,7 +64,7 @@ decay_time_to_linewidth(1.0u"ps")    # -> linewidth in meV (default output unit)
 
 | Module | What it does |
 |--------|-------------|
-| **TA data types** | `KineticTrace`, `TASpectrum`, `TAMatrix` with semantic axis indexing (`m[λ=800]`, `m[t=1.0]`) |
+| **TA data types** | `KineticTrace`, `TASpectrum`, `TimeResolvedMatrix` with semantic axis indexing (`m[λ=800]`, `m[t=1.0]`) |
 | **Exponential decay** | Single/multi-exponential with optional IRF convolution |
 | **Global fitting** | Shared parameters across traces, decay-associated spectra |
 | **TA spectrum fitting** | N-peak model with ESA/GSB/SE labels and sign convention |

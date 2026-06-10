@@ -42,7 +42,7 @@ include("cosmic_rays.jl")
 export AbstractSpectroscopyData
 export xdata, ydata, zdata, xlabel, ylabel, zlabel, is_matrix
 export source_file, npoints, title
-export KineticTrace, TASpectrum, TAMatrix, SweepData
+export KineticTrace, TASpectrum, TimeResolvedMatrix, SweepData
 export delay, signal, wavenumber, wavelength
 
 # PL/Raman spatial mapping

@@ -14,7 +14,7 @@ OpticalSpectroscopy.OpticalSpectroscopy
 AbstractSpectroscopyData
 KineticTrace
 TASpectrum
-TAMatrix
+TimeResolvedMatrix
 SweepData
 TASpectrumFit
 TAPeak
