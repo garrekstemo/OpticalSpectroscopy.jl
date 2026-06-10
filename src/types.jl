@@ -93,6 +93,13 @@ struct TATrace <: AbstractSpectroscopyData
     signal::Vector{Float64}
     wavelength::Float64
     metadata::Dict{Symbol,Any}
+
+    function TATrace(time, signal, wavelength, metadata)
+        length(time) == length(signal) || throw(ArgumentError(
+            "TATrace: time and signal must have equal length; " *
+            "got $(length(time)) time points and $(length(signal)) signal points"))
+        new(time, signal, wavelength, metadata)
+    end
 end
 
 # Constructor with default wavelength
@@ -205,6 +212,13 @@ struct TASpectrum <: AbstractSpectroscopyData
     signal::Vector{Float64}
     time_delay::Float64
     metadata::Dict{Symbol,Any}
+
+    function TASpectrum(wavenumber, signal, time_delay, metadata)
+        length(wavenumber) == length(signal) || throw(ArgumentError(
+            "TASpectrum: wavenumber and signal must have equal length; " *
+            "got $(length(wavenumber)) wavenumber points and $(length(signal)) signal points"))
+        new(wavenumber, signal, time_delay, metadata)
+    end
 end
 
 # Constructor with default time_delay
@@ -730,6 +744,21 @@ struct TAMatrix <: AbstractSpectroscopyData
     wavelength::Vector{Float64}
     data::Matrix{Float64}
     metadata::Dict{Symbol,Any}
+
+    function TAMatrix(time, wavelength, data, metadata)
+        expected = (length(time), length(wavelength))
+        if size(data) != expected
+            if size(data) == reverse(expected)
+                throw(ArgumentError(
+                    "TAMatrix: data is $(size(data)) but expected (n_time, n_wavelength) = " *
+                    "$expected — data appears transposed; pass permutedims(data)"))
+            else
+                throw(ArgumentError(
+                    "TAMatrix: data is $(size(data)) but expected (n_time, n_wavelength) = $expected"))
+            end
+        end
+        new(time, wavelength, data, metadata)
+    end
 end
 
 TAMatrix(time, wavelength, data; metadata=Dict{Symbol,Any}()) =

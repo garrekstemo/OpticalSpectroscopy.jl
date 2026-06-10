@@ -22,6 +22,39 @@ Random.seed!(42)
         @test TAMatrix <: AbstractSpectroscopyData
     end
 
+    @testset "Constructor shape validation" begin
+        # TATrace: time and signal must have equal length
+        @test_throws ArgumentError TATrace([1.0, 2.0, 3.0], [1.0, 2.0])
+        err = try TATrace([1.0, 2.0, 3.0], [1.0, 2.0]) catch e; e end
+        @test occursin("3", err.msg) && occursin("2", err.msg)
+        # positional (inner) path validates too
+        @test_throws ArgumentError TATrace([1.0, 2.0, 3.0], [1.0, 2.0], NaN, Dict{Symbol,Any}())
+        # valid construction unaffected
+        @test TATrace([1.0, 2.0], [0.1, 0.2]) isa TATrace
+
+        # TASpectrum: wavenumber and signal must have equal length
+        @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3])
+        @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3], NaN, Dict{Symbol,Any}())
+        @test TASpectrum([2000.0, 2050.0], [0.1, 0.2]) isa TASpectrum
+
+        # TAMatrix: data must be (n_time, n_wavelength)
+        time = collect(0.0:1.0:10.0)        # 11 points
+        wl = collect(500.0:10.0:650.0)      # 16 points
+        good = zeros(length(time), length(wl))
+        @test TAMatrix(time, wl, good) isa TAMatrix
+
+        # transposed data: error must name the expected shape and suggest permutedims
+        bad_t = zeros(length(wl), length(time))
+        @test_throws ArgumentError TAMatrix(time, wl, bad_t)
+        err_t = try TAMatrix(time, wl, bad_t) catch e; e end
+        @test occursin("(16, 11)", err_t.msg)
+        @test occursin("(11, 16)", err_t.msg)
+        @test occursin("permutedims", err_t.msg)
+
+        # arbitrary wrong shape also throws (positional path)
+        @test_throws ArgumentError TAMatrix(time, wl, zeros(3, 4), Dict{Symbol,Any}())
+    end
+
     @testset "AbstractSpectroscopyData interface - TATrace" begin
         trace = TATrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
 
@@ -1013,7 +1046,8 @@ Random.seed!(42)
             [pk], [0.01], 0, 0.9985, 0.001, 0.0001, 100,
             (2000.0, 2100.0), "NH4SCN_DMF_1M",
             [0.452, 2062.3, 24.7, 0.01], lorentzian, 3,
-            collect(2000.0:1.0:2099.0), zeros(100)
+            collect(2000.0:1.0:2099.0), zeros(100),
+            2049.5, 99.0   # fit-region x_mid, x_range
         )
         md = OpticalSpectroscopy.format_results(result)
         @test occursin("Peak Fit Results", md)
