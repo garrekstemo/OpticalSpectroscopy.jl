@@ -2831,6 +2831,9 @@ Random.seed!(42)
         # dof = n_params (here 3 -> t ≈ 3.18) rather than dof_residual
         # (197 -> t ≈ 1.97); the loose upper bound below tolerates both,
         # so this keeps passing if upstream fixes margin_error.
+        # Tracked upstream: https://github.com/SciML/CurveFit.jl/issues/107
+        # Once a fixed CurveFit release is out, tighten to ~1.97:
+        #   @test ratios[1] ≈ quantile(TDist(197), 0.975) rtol=1e-3
         se = stderror(sol)
         ratios = [(ci[i][2] - ci[i][1]) / (2 * se[i]) for i in 1:3]
         @test all(r -> isapprox(r, ratios[1]; rtol=1e-6), ratios)
