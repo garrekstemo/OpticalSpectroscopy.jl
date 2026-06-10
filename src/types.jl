@@ -42,12 +42,60 @@ end
 abstract type AbstractSpectroscopyData end
 
 # Interface functions (default implementations raise errors)
+
+"""
+    xdata(d::AbstractSpectroscopyData) -> Vector{Float64}
+
+Return the primary x-axis data (e.g. time for [`TATrace`](@ref), wavenumber
+for [`TASpectrum`](@ref), wavelength for [`TAMatrix`](@ref)).
+Every concrete subtype implements this.
+"""
 xdata(::AbstractSpectroscopyData) = error("xdata not implemented for this type")
+
+"""
+    ydata(d::AbstractSpectroscopyData) -> Vector{Float64}
+
+Return the signal data for 1D types, or the secondary axis for 2D types
+(e.g. the time axis of a [`TAMatrix`](@ref)).
+"""
 ydata(::AbstractSpectroscopyData) = error("ydata not implemented for this type")
+
+"""
+    zdata(d::AbstractSpectroscopyData) -> Union{Matrix{Float64}, Nothing}
+
+Return the signal matrix for 2D types (e.g. the ΔA matrix of a
+[`TAMatrix`](@ref), the intensity map of a [`PLMap`](@ref)).
+Returns `nothing` for 1D data.
+"""
 zdata(::AbstractSpectroscopyData) = nothing  # Default: not a matrix
+
+"""
+    xlabel(d::AbstractSpectroscopyData) -> String
+
+Return a display label for the x axis (e.g. `"Time (ps)"`, `"Wavenumber (cm⁻¹)"`).
+"""
 xlabel(::AbstractSpectroscopyData) = "X"
+
+"""
+    ylabel(d::AbstractSpectroscopyData) -> String
+
+Return a display label for the y axis or signal (e.g. `"ΔA"`).
+"""
 ylabel(::AbstractSpectroscopyData) = "Y"
+
+"""
+    zlabel(d::AbstractSpectroscopyData) -> String
+
+Return a display label for the signal of 2D data (e.g. `"ΔA"`, `"PL Intensity"`).
+"""
 zlabel(::AbstractSpectroscopyData) = "Signal"
+
+"""
+    is_matrix(d::AbstractSpectroscopyData) -> Bool
+
+Whether the data is 2D (`true` for [`TAMatrix`](@ref) and [`PLMap`](@ref);
+`false` for 1D types). When `true`, [`zdata`](@ref) returns a matrix.
+"""
 is_matrix(::AbstractSpectroscopyData) = false  # Default: 1D data
 
 """
@@ -93,6 +141,13 @@ struct TATrace <: AbstractSpectroscopyData
     signal::Vector{Float64}
     wavelength::Float64
     metadata::Dict{Symbol,Any}
+
+    function TATrace(time, signal, wavelength, metadata)
+        length(time) == length(signal) || throw(ArgumentError(
+            "TATrace: time and signal must have equal length; " *
+            "got $(length(time)) time points and $(length(signal)) signal points"))
+        new(time, signal, wavelength, metadata)
+    end
 end
 
 # Constructor with default wavelength
@@ -205,6 +260,13 @@ struct TASpectrum <: AbstractSpectroscopyData
     signal::Vector{Float64}
     time_delay::Float64
     metadata::Dict{Symbol,Any}
+
+    function TASpectrum(wavenumber, signal, time_delay, metadata)
+        length(wavenumber) == length(signal) || throw(ArgumentError(
+            "TASpectrum: wavenumber and signal must have equal length; " *
+            "got $(length(wavenumber)) wavenumber points and $(length(signal)) signal points"))
+        new(wavenumber, signal, time_delay, metadata)
+    end
 end
 
 # Constructor with default time_delay
@@ -579,6 +641,10 @@ struct MultiPeakFitResult
     _n_peak_params::Int
     _x::Vector{Float64}
     _y::Vector{Float64}
+    # Baseline-basis normalization fixed by the fit region; reused for every
+    # later evaluation (predict / predict_baseline on arbitrary grids).
+    _x_mid::Float64
+    _x_range::Float64
 end
 
 Base.getindex(r::MultiPeakFitResult, i::Int) = r.peaks[i]
@@ -726,6 +792,21 @@ struct TAMatrix <: AbstractSpectroscopyData
     wavelength::Vector{Float64}
     data::Matrix{Float64}
     metadata::Dict{Symbol,Any}
+
+    function TAMatrix(time, wavelength, data, metadata)
+        expected = (length(time), length(wavelength))
+        if size(data) != expected
+            if size(data) == reverse(expected)
+                throw(ArgumentError(
+                    "TAMatrix: data is $(size(data)) but expected (n_time, n_wavelength) = " *
+                    "$expected — data appears transposed; pass permutedims(data)"))
+            else
+                throw(ArgumentError(
+                    "TAMatrix: data is $(size(data)) but expected (n_time, n_wavelength) = $expected"))
+            end
+        end
+        new(time, wavelength, data, metadata)
+    end
 end
 
 TAMatrix(time, wavelength, data; metadata=Dict{Symbol,Any}()) =

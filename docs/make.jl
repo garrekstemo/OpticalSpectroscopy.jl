@@ -5,7 +5,7 @@ makedocs(
     sitename = "OpticalSpectroscopy.jl",
     modules = [OpticalSpectroscopy],
     checkdocs = :exports,
-    warnonly = [:missing_docs, :cross_references],
+    warnonly = [:cross_references],
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
     ),

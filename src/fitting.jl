@@ -472,7 +472,8 @@ function fit_global(traces::Vector{TATrace}; n_exp::Int=1, irf_width::Float64=0.
 end
 
 """
-    fit_global(matrix::TAMatrix; n_exp=1, irf_width=0.15, λ=nothing) -> GlobalFitResult
+    fit_global(matrix::TAMatrix; n_exp=1, irf_width=0.15, λ=nothing,
+               max_wavelengths=200) -> GlobalFitResult
 
 Global analysis of a TAMatrix, extracting traces at each wavelength.
 
@@ -483,6 +484,12 @@ enabling decay-associated spectra (DAS) via `das(result)`.
 - `n_exp::Int=1`: Number of exponential components
 - `irf_width::Float64=0.15`: Initial guess for IRF σ in ps
 - `λ=nothing`: Specific wavelengths to fit. If `nothing`, fits all wavelengths.
+- `max_wavelengths::Int=200`: Refuse to fit more wavelengths than this.
+  Every wavelength adds `n_exp + 1` free nonlinear parameters plus one
+  bootstrap IRF fit, so an unrestricted fit on CCD-resolution data
+  (e.g. 2048 pixels) builds a multi-gigabyte Jacobian. Pass a subset via
+  `λ` (e.g. evenly spaced or SVD-selected wavelengths), or raise
+  `max_wavelengths` explicitly if you accept the cost.
 
 # Examples
 ```julia
@@ -491,13 +498,28 @@ report(result)
 
 # Get decay-associated spectra
 spectra = das(result)  # n_exp × n_wavelengths matrix
+
+# Broadband CCD data: fit a coarse wavelength subset
+result = fit_global(matrix; n_exp=2, λ=range(450, 750, length=50))
 ```
 """
-function fit_global(matrix::TAMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=nothing)
+function fit_global(matrix::TAMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=nothing,
+                    max_wavelengths::Int=200)
     if isnothing(λ)
         wavelengths = matrix.wavelength
     else
         wavelengths = collect(Float64, λ)
+    end
+
+    n_wl = length(wavelengths)
+    if n_wl > max_wavelengths
+        throw(ArgumentError(
+            "fit_global would fit $n_wl wavelengths, above max_wavelengths=$max_wavelengths. " *
+            "Each wavelength adds $(n_exp + 1) free nonlinear parameters plus a bootstrap IRF fit " *
+            "($(n_exp + 2 + n_wl * (n_exp + 1)) total parameters here), which is prohibitively " *
+            "expensive at CCD resolution. Pass a wavelength subset via λ (e.g. " *
+            "λ=range($(round(first(wavelengths), digits=1)), $(round(last(wavelengths), digits=1)), length=50) " *
+            "or an SVD/coarse-grained selection), or raise max_wavelengths if you accept the cost."))
     end
 
     traces = TATrace[]
@@ -551,20 +573,22 @@ function predict(fit::GlobalFitResult, traces::Vector{TATrace})
 end
 
 function predict(fit::GlobalFitResult, matrix::TAMatrix)
-    wavelengths = something(fit.wavelengths, matrix.wavelength)
+    # The reconstruction lives on the FITTED wavelength axis, which may be a
+    # subset of the matrix grid (fit_global(matrix; λ=subset)). Column j of
+    # the output corresponds to fit.wavelengths[j] / fit.amplitudes[j, :].
+    wavelengths = collect(Float64, something(fit.wavelengths, matrix.wavelength))
     reconstructed = Matrix{Float64}(undef, length(matrix.time), length(wavelengths))
 
-    for (j, wl) in enumerate(wavelengths)
-        wl_idx = _find_nearest_idx(matrix.wavelength, wl)
+    for j in eachindex(wavelengths)
         amps = fit.amplitudes[j, :]
         for (i, t) in enumerate(matrix.time)
-            reconstructed[i, wl_idx] = _multiexp_irf_conv(t, fit.taus, amps, fit.t0, fit.sigma, fit.offsets[j])
+            reconstructed[i, j] = _multiexp_irf_conv(t, fit.taus, amps, fit.t0, fit.sigma, fit.offsets[j])
         end
     end
 
     metadata = copy(matrix.metadata)
     metadata[:reconstructed] = true
-    return TAMatrix(matrix.time, matrix.wavelength, reconstructed, metadata)
+    return TAMatrix(matrix.time, wavelengths, reconstructed, metadata)
 end
 
 

@@ -90,7 +90,10 @@ export correct_baseline
 # ==========================================================================
 # Exports — Spectroscopy utilities
 # ==========================================================================
-export normalize, normalize_intensity, subtract_spectrum
+# NOTE: `normalize` (max-abs scaling) is deliberately NOT exported — it would
+# collide with LinearAlgebra.normalize in any session loading both packages.
+# Use `OpticalSpectroscopy.normalize`, or the explicit variants below.
+export normalize_intensity, subtract_spectrum
 export smooth_data, calc_fwhm
 export transmittance_to_absorbance, absorbance_to_transmittance
 export savitzky_golay_smooth, derivative
@@ -127,6 +130,31 @@ export fano, voigt, log_normal
 # ==========================================================================
 # Plotting — methods live in OpticalSpectroscopyMakieExt (loaded with Makie)
 # ==========================================================================
+"""
+    plot_fit(fit::MultiPeakFitResult; residuals=true, components=false,
+             baseline=false, xlabel="x", ylabel="Signal",
+             figure=(;), axis=(;)) -> Figure
+
+Plot data, fitted curve, and (optionally) residuals, per-peak components,
+and the fitted baseline for a multi-peak fit.
+
+Requires a Makie backend: load CairoMakie or GLMakie first to activate the
+plotting extension. Returns a `Makie.Figure`.
+
+# Keywords
+- `residuals::Bool=true` — Add a residuals panel below the main axis
+- `components::Bool=false` — Draw each fitted peak separately
+- `baseline::Bool=false` — Draw the fitted polynomial baseline
+- `xlabel`, `ylabel` — Axis labels
+- `figure`, `axis` — NamedTuples forwarded to `Figure`/`Axis`
+
+# Example
+```julia
+using GLMakie, OpticalSpectroscopy
+result = fit_peaks(x, y, (2000, 2100); n_peaks=2)
+plot_fit(result; components=true, baseline=true)
+```
+"""
 function plot_fit end
 export plot_fit
 

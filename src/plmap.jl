@@ -128,7 +128,9 @@ using the same `pixel_range` as the original load (if any).
 
 # Example
 ```julia
-m = load_pl_map("data.lvm"; nx=51, ny=51, step_size=2.16, pixel_range=(950, 1100))
+# spectra: (nx, ny, n_pixel) CCD counts; x, y: stage positions (μm)
+intensity = dropdims(sum(spectra; dims=3); dims=3)
+m = PLMap(intensity, spectra, x, y, collect(1.0:size(spectra, 3)))
 
 # Explicit background positions
 m_bg = subtract_background(m; positions=[(-40, -40), (40, -40), (-40, -20)])
@@ -265,7 +267,7 @@ A named tuple with fields:
 
 # Examples
 ```julia
-m = load_pl_map("scan.lvm"; nx=51, ny=51)
+m = PLMap(intensity, spectra, x, y, pixel)
 m = subtract_background(m)
 
 # Threshold only
@@ -351,9 +353,9 @@ regions (low PL signal) are transparent, on-flake regions show centroid position
 
 # Example
 ```julia
-m = load_pl_map("scan.lvm"; nx=51, ny=51, pixel_range=(950, 1100))
+m = PLMap(intensity, spectra, x, y, pixel)
 m = subtract_background(m)
-centers = peak_centers(m)
+centers = peak_centers(m; pixel_range=(950, 1100))
 heatmap(m.x, m.y, centers; colormap=:viridis, nan_color=:transparent)
 ```
 """
@@ -395,6 +397,31 @@ end
 # Batch peak fitting
 # =============================================================================
 
+# FWHM of a fitted peak, converted according to the model actually used.
+# Width parameterizations differ across CurveFitModels lineshapes:
+#   lorentzian    Γ is already the FWHM (param :fwhm)
+#   gaussian      σ is the standard deviation        -> FWHM = 2√(2ln2)·σ
+#   pseudo_voigt  σ is the HWHM of BOTH components   -> FWHM = 2σ
+#   voigt         σ Gaussian std dev, γ Lorentzian HWHM -> Thompson et al. (1987)
+#   fano          asymmetric lineshape, FWHM not well defined -> NaN
+function _peak_fwhm(pk::PeakFitResult)
+    if haskey(pk, :fwhm)
+        return abs(pk[:fwhm].value)
+    elseif pk.model == "pseudo_voigt" && haskey(pk, :sigma)
+        return 2 * abs(pk[:sigma].value)
+    elseif haskey(pk, :sigma) && haskey(pk, :gamma)
+        # Voigt FWHM approximation (Thompson et al., 1987)
+        fwhm_g = abs(pk[:sigma].value) * 2 * sqrt(2 * log(2))
+        fwhm_l = 2 * abs(pk[:gamma].value)
+        return 0.5346 * fwhm_l + sqrt(0.2166 * fwhm_l^2 + fwhm_g^2)
+    elseif haskey(pk, :sigma)
+        # gaussian (and unknown models exposing :sigma): treat as std dev
+        return abs(pk[:sigma].value) * 2 * sqrt(2 * log(2))
+    else
+        return NaN
+    end
+end
+
 """
     fit_map(m::PLMap; kwargs...) -> FitMapResult
 
@@ -425,7 +452,7 @@ Fitting is multi-threaded when Julia is started with multiple threads
 
 # Example
 ```julia
-m = load_pl_map("scan.lvm"; nx=51, ny=51, step_size=2.16)
+m = PLMap(intensity, spectra, x, y, pixel)
 m = subtract_background(m)
 
 result = fit_map(m;
@@ -565,16 +592,7 @@ function fit_map(m::PLMap;
                 if haskey(pk, :center)
                     centers[ix, iy, pk_idx] = pk[:center].value
                 end
-                if haskey(pk, :fwhm)
-                    fwhms[ix, iy, pk_idx] = pk[:fwhm].value
-                elseif haskey(pk, :sigma) && haskey(pk, :gamma)
-                    # Voigt FWHM approximation (Thompson et al., 1987)
-                    fwhm_g = pk[:sigma].value * 2 * sqrt(2 * log(2))
-                    fwhm_l = 2 * abs(pk[:gamma].value)
-                    fwhms[ix, iy, pk_idx] = 0.5346 * fwhm_l + sqrt(0.2166 * fwhm_l^2 + fwhm_g^2)
-                elseif haskey(pk, :sigma)
-                    fwhms[ix, iy, pk_idx] = pk[:sigma].value * 2 * sqrt(2 * log(2))
-                end
+                fwhms[ix, iy, pk_idx] = _peak_fwhm(pk)
                 if haskey(pk, :amplitude)
                     amplitudes[ix, iy, pk_idx] = pk[:amplitude].value
                 end

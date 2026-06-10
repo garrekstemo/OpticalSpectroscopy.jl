@@ -8,7 +8,7 @@ General-purpose spectroscopy analysis tools for Julia. Public, registerable pack
 
 - Peak fitting (Gaussian, Lorentzian, Pseudo-Voigt) via CurveFit.jl + CurveFitModels.jl
 - Peak detection via Peaks.jl
-- Baseline correction (ALS, ARPLS, SNIP, polynomial, Whittaker)
+- Baseline correction (arPLS, SNIP, rubberband, iModPoly, rolling ball)
 - Exponential decay fitting (single/multi-exponential) with optional IRF convolution
 - Global fitting with shared parameters across traces
 - Unit conversions (wavenumber/wavelength/energy, linewidth/decay-time)
@@ -77,19 +77,23 @@ OpticalSpectroscopy extends `CurveFit.residuals`, `CurveFit.predict`, and `Curve
 
 ```
 src/
-  OpticalSpectroscopy.jl    # Main module
+  OpticalSpectroscopy.jl  # Main module
   types.jl                # AbstractSpectroscopyData + fit result types
   fitting.jl              # Exponential decay (single/multi/global + IRF)
   peakfitting.jl          # Multi-peak fitting + TA spectrum fitting
   peakdetection.jl        # Peak finding
-  baseline.jl             # ALS, ARPLS, SNIP, polynomial, Whittaker
+  baseline.jl             # arPLS, SNIP, rubberband, iModPoly, rolling ball
   spectroscopy.jl         # Normalize, conversions, smoothing
+  transforms.jl           # Kramers-Kronig, Kubelka-Munk, Tauc, SNV
   units.jl                # Unitful conversions
   chirp.jl                # Chirp detection, correction, serialization
+  plmap.jl                # PLMap type, fit_map, intensity masks
+  decomposition.jl        # PCA / NMF map decomposition
+  cosmic_rays.jl          # Cosmic ray detection and removal
 ```
 
 ## Development
 
-- **Not yet registered.** Pre-registration checklist is complete.
+- **Not yet registered.**
 - All tests use synthetic data — no local file dependencies.
-- CI green on Linux, macOS, Windows (Julia 1.10, 1.12, nightly).
+- CI runs on Ubuntu only (Julia 1.10 and 1.12).
