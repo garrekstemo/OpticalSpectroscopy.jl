@@ -2534,6 +2534,309 @@ Random.seed!(42)
         end
     end
 
+    @testset "fit_map full surface (mask, abort, progress, accessors)" begin
+        Random.seed!(7)
+        # 6×6 map, Gaussian peak whose center varies linearly across the map.
+        nx, ny, np = 6, 6, 200
+        pixel = collect(1.0:np)
+        xs = collect(range(-5.0, 5.0, length=nx))
+        ys = collect(range(-5.0, 5.0, length=ny))
+        true_center(ix, iy) = 90.0 + 2.0 * ix + 1.0 * iy
+        σ_true = 5.0
+        amp_true(ix, iy) = 3.0 + 0.1 * ix
+        spectra = zeros(nx, ny, np)
+        for ix in 1:nx, iy in 1:ny
+            spectra[ix, iy, :] .= gaussian([amp_true(ix, iy), true_center(ix, iy), σ_true], pixel) .+ 0.05
+        end
+        # Dark column ix=1: kill the signal so threshold masking excludes it
+        spectra[1, :, :] .= 0.001
+        intens = dropdims(sum(spectra; dims=3); dims=3)
+        m = PLMap(intens, spectra, xs, ys, pixel)
+
+        progress_calls = Threads.Atomic{Int}(0)
+        progress_total = Threads.Atomic{Int}(0)
+        res = fit_map(m; model=gaussian, threshold=0.2,
+                      progress=(done, total) -> begin
+                          Threads.atomic_add!(progress_calls, 1)
+                          Threads.atomic_max!(progress_total, total)
+                      end)
+
+        @test res isa FitMapResult
+        @test size(res) == (nx, ny)
+        @test res.n_peaks == 1
+        @test res.n_skipped == ny              # dark column excluded
+        @test res.n_converged == (nx - 1) * ny
+        @test res.n_failed == 0
+        @test res.median_r_squared > 0.999
+        @test progress_calls[] >= res.n_converged
+        @test progress_total[] == (nx - 1) * ny
+
+        # Quantitative recovery on every fitted pixel
+        for ix in 2:nx, iy in 1:ny
+            @test res.centers[ix, iy, 1] ≈ true_center(ix, iy) atol=0.2
+            @test res.fwhms[ix, iy, 1] ≈ 2 * sqrt(2 * log(2)) * σ_true rtol=0.02
+            @test res.amplitudes[ix, iy, 1] ≈ amp_true(ix, iy) rtol=0.05
+            @test res.r_squareds[ix, iy] > 0.999
+            @test res[ix, iy] isa MultiPeakFitResult
+        end
+        # Masked pixels: nothing results, NaN summaries
+        @test all(isnothing, res.results[1, :])
+        @test all(isnan, res.centers[1, :, 1])
+        @test all(isnan, res.fwhms[1, :, 1])
+        @test res.mask isa BitMatrix
+        @test !any(res.mask[1, :])
+
+        # show methods
+        buf = IOBuffer()
+        show(buf, res)
+        @test occursin("FitMapResult", String(take!(buf)))
+        show(buf, MIME("text/plain"), res)
+        @test occursin("Converged", String(take!(buf)))
+
+        # Pre-computed mask is honored verbatim
+        mask = trues(nx, ny)
+        mask[:, 1] .= false
+        res_mask = fit_map(m; model=gaussian, mask=mask)
+        @test res_mask.n_skipped == nx
+        @test all(isnothing, res_mask.results[:, 1])
+
+        # Abort flag set up-front: only the reference pixel is fitted
+        res_abort = fit_map(m; model=gaussian, abort=Threads.Atomic{Bool}(true))
+        @test res_abort.n_converged <= 1
+        @test count(!isnothing, res_abort.results) <= 1
+
+        # region kwarg restricts the spectral window but still converges
+        res_region = fit_map(m; model=gaussian, threshold=0.2, region=(60, 140))
+        @test res_region.n_converged == (nx - 1) * ny
+        @test res_region.centers[3, 3, 1] ≈ true_center(3, 3) atol=0.3
+    end
+
+    @testset "integrated_intensity and intensity_mask" begin
+        nx, ny, np = 5, 4, 30
+        pixel = collect(1.0:np)
+        xs = collect(0.0:4.0)
+        ys = collect(0.0:3.0)
+        spectra = zeros(nx, ny, np)
+        for ix in 1:nx, iy in 1:ny
+            spectra[ix, iy, :] .= Float64(ix)   # flat spectra, value = ix
+        end
+        intens = dropdims(sum(spectra; dims=3); dims=3)  # = ix * np
+        m = PLMap(intens, spectra, xs, ys, pixel)
+
+        # No pixel_range and no metadata: passthrough of m.intensity
+        @test integrated_intensity(m) === m.intensity
+
+        # Explicit pixel_range: sum over the window
+        ii = integrated_intensity(m; pixel_range=(11, 20))
+        @test size(ii) == (nx, ny)
+        @test ii[3, 2] ≈ 3.0 * 10
+        @test ii[5, 1] ≈ 5.0 * 10
+
+        # metadata fallback
+        meta = Dict{String,Any}("pixel_range" => (1, 15))
+        m_meta = PLMap(intens, spectra, xs, ys, pixel, meta)
+        @test integrated_intensity(m_meta)[2, 2] ≈ 2.0 * 15
+
+        # intensity_mask: intensity ranges ix*np = 30..150, cutoff at 50%
+        r = intensity_mask(m; threshold=0.5)
+        @test r.intensity_min ≈ 30.0
+        @test r.intensity_max ≈ 150.0
+        @test r.cutoff ≈ 30.0 + 0.5 * 120.0
+        @test r.n_total == nx * ny
+        # included: ix in (3,4,5) -> 3 columns × ny
+        @test r.n_included == 3 * ny
+        @test all(r.mask[3:5, :])
+        @test !any(r.mask[1:2, :])
+
+        # exclusion region: knock out the ix=5 column by spatial coordinates
+        r_ex = intensity_mask(m; threshold=0.5, exclude=((3.5, 4.5), (-Inf, Inf)))
+        @test !any(r_ex.mask[5, :])
+        @test r_ex.n_included == 2 * ny
+
+        # vector of regions
+        r_ex2 = intensity_mask(m; threshold=0.5,
+                               exclude=[((3.5, 4.5), (-Inf, Inf)),
+                                        ((1.5, 2.5), (-Inf, Inf))])
+        @test r_ex2.n_included == 1 * ny
+    end
+
+    @testset "pca_map and nmf_map recover planted components" begin
+        Random.seed!(11)
+        nx, ny, np = 8, 8, 120
+        pixel = collect(1.0:np)
+        spec_a = gaussian([1.0, 40.0, 6.0], pixel)    # species A
+        spec_b = gaussian([1.0, 85.0, 9.0], pixel)    # species B
+        spectra = zeros(nx, ny, np)
+        for ix in 1:nx, iy in 1:ny
+            w_a = ix <= nx ÷ 2 ? 5.0 + 0.2 * iy : 0.5
+            w_b = ix > nx ÷ 2 ? 4.0 + 0.3 * iy : 0.4
+            spectra[ix, iy, :] .= w_a .* spec_a .+ w_b .* spec_b .+ 0.005 .* rand(np)
+        end
+        intens = dropdims(sum(spectra; dims=3); dims=3)
+        m = PLMap(intens, spectra, collect(1.0:nx), collect(1.0:ny), pixel)
+
+        # --- PCA ---
+        p = pca_map(m; n_components=3)
+        @test p isa DecompositionResult
+        @test size(p.loadings) == (nx, ny, 3)
+        @test size(p.components) == (3, np)
+        @test length(p.explained_variance) == 3
+        @test all(0 .<= p.explained_variance .<= 1)
+        @test issorted(p.explained_variance, rev=true)
+        # Two-species data after centering: first PC dominates and is the
+        # A-vs-B contrast direction
+        @test p.explained_variance[1] > 0.9
+        contrast = spec_a .- spec_b
+        c1 = p.components[1, :]
+        @test abs(cor(c1, contrast)) > 0.95
+
+        # First PC loading map separates the two halves spatially
+        pc1 = p.loadings[:, :, 1]
+        @test sign(mean(pc1[1:nx÷2, :])) != sign(mean(pc1[nx÷2+1:end, :]))
+
+        # n_components validation
+        @test_throws ArgumentError pca_map(m; n_components=0)
+        @test_throws ArgumentError pca_map(m; n_components=1000)
+
+        # --- NMF ---
+        Random.seed!(13)   # nmf_map uses the global RNG for initialization
+        q = nmf_map(m; n_components=2, max_iter=500)
+        @test q isa DecompositionResult
+        @test size(q.loadings) == (nx, ny, 2)
+        @test size(q.components) == (2, np)
+        @test all(q.loadings .>= 0)
+        @test all(q.components .>= 0)
+
+        # Each planted spectrum is recovered by one NMF component (up to
+        # permutation and scale)
+        cors_a = [cor(q.components[k, :], spec_a) for k in 1:2]
+        cors_b = [cor(q.components[k, :], spec_b) for k in 1:2]
+        k_a = argmax(cors_a)
+        k_b = argmax(cors_b)
+        @test k_a != k_b
+        @test cors_a[k_a] > 0.95
+        @test cors_b[k_b] > 0.95
+        # ... with the matching spatial distribution
+        @test mean(q.loadings[1:nx÷2, :, k_a]) > mean(q.loadings[nx÷2+1:end, :, k_a])
+        @test mean(q.loadings[nx÷2+1:end, :, k_b]) > mean(q.loadings[1:nx÷2, :, k_b])
+
+        @test_throws ArgumentError nmf_map(m; n_components=0)
+
+        # show methods
+        buf = IOBuffer()
+        show(buf, p)
+        @test occursin("DecompositionResult", String(take!(buf)))
+        show(buf, MIME("text/plain"), p)
+        @test occursin("Components", String(take!(buf)))
+    end
+
+    @testset "find_peaks direct coverage" begin
+        x = collect(400.0:0.5:700.0)
+        y = gaussian([1.0, 480.0, 8.0], x) .+
+            gaussian([0.6, 560.0, 6.0], x) .+
+            gaussian([0.15, 640.0, 5.0], x)
+
+        peaks = find_peaks(x, y; min_prominence=0.05)
+        @test length(peaks) == 3
+        @test issorted([p.position for p in peaks])
+        @test peaks[1].position ≈ 480.0 atol=1.0
+        @test peaks[2].position ≈ 560.0 atol=1.0
+        @test peaks[3].position ≈ 640.0 atol=1.0
+        @test peaks[1].intensity ≈ 1.0 atol=0.05
+        @test peaks[1].prominence > peaks[2].prominence > peaks[3].prominence
+        # FWHP of an isolated Gaussian ≈ FWHM = 2√(2ln2)σ
+        @test peaks[1].width ≈ 2 * sqrt(2 * log(2)) * 8.0 rtol=0.15
+        @test peaks[1].bounds[1] < 480.0 < peaks[1].bounds[2]
+        @test x[peaks[1].index] ≈ peaks[1].position
+
+        # min_prominence filtering drops the small peak
+        peaks_strict = find_peaks(x, y; min_prominence=0.3)
+        @test length(peaks_strict) == 2
+        @test all(p -> p.position < 600, peaks_strict)
+
+        # min_height filter
+        peaks_tall = find_peaks(x, y; min_height=0.9)
+        @test length(peaks_tall) == 1
+        @test peaks_tall[1].position ≈ 480.0 atol=1.0
+
+        # width filters
+        peaks_wide = find_peaks(x, y; min_width=15.0)
+        @test all(p -> p.width >= 15.0, peaks_wide)
+        @test length(peaks_wide) < 3
+
+        # minima mode finds dips
+        dips = find_peaks(x, -y; mode=:minima, min_prominence=0.05)
+        @test length(dips) == 3
+        @test dips[1].position ≈ 480.0 atol=1.0
+
+        # index-based variant (no x)
+        peaks_idx = find_peaks(y; min_prominence=0.05)
+        @test length(peaks_idx) == 3
+        @test peaks_idx[1].position ≈ findfirst(==(maximum(y)), y) atol=2.0
+
+        # degenerate input
+        @test find_peaks([1.0, 2.0]) == PeakInfo[]
+        @test_throws ArgumentError find_peaks([1.0, 2.0], [1.0])
+    end
+
+    @testset "voigt and log_normal model passthroughs" begin
+        x = collect(range(50.0, 150.0, length=2001))
+
+        # γ -> 0: voigt reduces exactly to the Gaussian component
+        @test voigt([2.0, 100.0, 5.0, 0.0], x) ≈ gaussian([2.0, 100.0, 5.0], x) rtol=1e-8
+
+        # σ -> 0: voigt reduces exactly to a Lorentzian with FWHM = 2γ
+        @test voigt([2.0, 100.0, 0.0, 4.0], x) ≈ lorentzian([2.0, 100.0, 8.0], x) rtol=1e-6
+
+        # peak position and amplitude at center
+        v = voigt([2.0, 100.0, 3.0, 2.0], x)
+        @test x[argmax(v)] ≈ 100.0 atol=0.1
+        @test maximum(v) ≈ 2.0 rtol=0.02
+
+        # offset parameter
+        v_off = voigt([2.0, 100.0, 3.0, 2.0, 0.5], x)
+        @test v_off ≈ v .+ 0.5
+
+        # log_normal: maximum at exp(μ - σ²)
+        μ, σ_ln = log(100.0), 0.25
+        ln_y = log_normal([1.0, μ, σ_ln], x)
+        @test x[argmax(ln_y)] ≈ exp(μ - σ_ln^2) rtol=0.01
+        @test all(isfinite, ln_y)
+        # offset parameter
+        ln_off = log_normal([1.0, μ, σ_ln, 0.2], x)
+        @test ln_off ≈ ln_y .+ 0.2
+    end
+
+    @testset "confint re-export brackets true parameters" begin
+        Random.seed!(21)
+        x = collect(range(0.0, 20.0, length=200))
+        p_true = [2.0, 5.0, 0.1]   # single_exponential [A, τ, y₀]
+        y = single_exponential(p_true, x) .+ 0.01 .* randn(length(x))
+
+        prob = NonlinearCurveFitProblem(single_exponential, [1.5, 3.0, 0.0], x, y)
+        sol = solve(prob)
+        @test isconverged(sol)
+
+        p_fit = coef(sol)
+        ci = confint(sol)
+        @test length(ci) == 3
+        for i in 1:3
+            lo, hi = ci[i]
+            @test lo < hi
+            @test lo <= p_fit[i] <= hi      # interval centered on the estimate
+            @test lo <= p_true[i] <= hi     # and bracketing the truth
+        end
+        # interval half-width is a fixed multiple of stderror across params.
+        # NOTE: CurveFit v1 computes the t-quantile with TDist(dof) where
+        # dof = n_params (here 3 -> t ≈ 3.18) rather than dof_residual
+        # (197 -> t ≈ 1.97); the loose upper bound below tolerates both,
+        # so this keeps passing if upstream fixes margin_error.
+        se = stderror(sol)
+        ratios = [(ci[i][2] - ci[i][1]) / (2 * se[i]) for i in 1:3]
+        @test all(r -> isapprox(r, ratios[1]; rtol=1e-6), ratios)
+        @test 1.9 < ratios[1] < 3.5
+    end
+
     @testset "Makie extension" begin
         using CairoMakie
 
