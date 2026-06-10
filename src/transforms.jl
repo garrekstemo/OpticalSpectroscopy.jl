@@ -6,8 +6,9 @@
 Kramers-Kronig relation: compute the real part of a response function
 from its imaginary part (or vice versa).
 
-Uses the Maclaurin formula (trapezoidal Cauchy principal value integration)
-for numerical stability without requiring FFT.
+Uses the Maclaurin formula (alternate-point Cauchy principal value integration;
+Ohta & Ishida, Appl. Spectrosc. 42, 952 (1988)) for numerical stability without
+requiring FFT.
 
 # Arguments
 - `omega`: Frequency/energy/wavenumber axis (should be uniformly spaced)
@@ -19,14 +20,22 @@ Returns the computed conjugate part.
 function kramers_kronig(omega, chi; type=:imag_to_real)
     n = length(chi)
     n == length(omega) || throw(ArgumentError("omega and chi must have the same length"))
+    type in (:imag_to_real, :real_to_imag) ||
+        throw(ArgumentError("type must be :imag_to_real or :real_to_imag (got $type)"))
     w = Float64.(omega)
     f = Float64.(chi)
     result = zeros(n)
 
-    # Maclaurin formula for Cauchy principal value:
-    # chi_real(w_i) = (2/pi) * sum over odd j-i of: w_j * chi_imag(w_j) * dw / (w_j^2 - w_i^2)
+    # Maclaurin formula for the Cauchy principal value (Ohta & Ishida 1988):
+    # only alternate points (odd j-i) are summed, so the effective quadrature
+    # spacing is h = 2*dw.
+    #   chi'(w_i)  =  (2/pi)       * h * sum_{odd j-i} w_j chi''(w_j) / (w_j^2 - w_i^2)
+    #   chi''(w_i) = -(2 w_i / pi) * h * sum_{odd j-i}     chi'(w_j)  / (w_j^2 - w_i^2)
+    # Note the asymmetry: imag->real carries w_j inside the sum; real->imag
+    # carries the evaluation frequency w_i outside it.
     dw = length(w) > 1 ? abs(w[2] - w[1]) : 1.0
-    sign_factor = type == :imag_to_real ? 1.0 : -1.0
+    h = 2.0 * dw
+    imag_to_real = type == :imag_to_real
 
     for i in eachindex(w)
         s = 0.0
@@ -34,15 +43,14 @@ function kramers_kronig(omega, chi; type=:imag_to_real)
             if j == i
                 continue
             end
-            # Only sum over points where (j-i) is odd (Maclaurin rule for principal value)
             if isodd(j - i)
                 denom = w[j]^2 - w[i]^2
                 if abs(denom) > eps(Float64)
-                    s += w[j] * f[j] / denom
+                    s += (imag_to_real ? w[j] * f[j] : f[j]) / denom
                 end
             end
         end
-        result[i] = sign_factor * (2.0 / pi) * dw * s
+        result[i] = imag_to_real ? (2.0 / pi) * h * s : -(2.0 * w[i] / pi) * h * s
     end
     return result
 end

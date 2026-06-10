@@ -2137,6 +2137,31 @@ Random.seed!(42)
             # Real part should change sign near the resonance
             # (dispersive lineshape)
             @test any(result .> 0) && any(result .< 0)
+
+            # Quantitative regression against the exact Lorentz-oscillator KK pair.
+            # Catches quadrature-weight errors: the Maclaurin rule sums alternate
+            # points only, so the weight is 2*dw (Ohta & Ishida 1988), and the
+            # real->imag direction carries w_i outside the integral, not w_j inside.
+            #   chi'(w)  = wp2 (w0^2 - w^2) / [(w0^2 - w^2)^2 + g^2 w^2]
+            #   chi''(w) = wp2 g w / [(w0^2 - w^2)^2 + g^2 w^2]
+            w0, g, wp2 = 1000.0, 50.0, 1.0e6
+            w = collect(1.0:1.0:8000.0)
+            chi_re_exact = @. wp2 * (w0^2 - w^2) / ((w0^2 - w^2)^2 + g^2 * w^2)
+            chi_im_exact = @. wp2 * g * w / ((w0^2 - w^2)^2 + g^2 * w^2)
+
+            re_num = kramers_kronig(w, chi_im_exact; type=:imag_to_real)
+            for i in (900, 950, 1050, 1100, 1500)
+                @test re_num[i] ≈ chi_re_exact[i] rtol=1e-3
+            end
+            re_peak = maximum(abs.(chi_re_exact))
+            @test maximum(abs.(re_num[500:2000] .- chi_re_exact[500:2000])) / re_peak < 1e-3
+
+            im_num = kramers_kronig(w, chi_re_exact; type=:real_to_imag)
+            for i in (900, 950, 1000, 1050, 1100)
+                @test im_num[i] ≈ chi_im_exact[i] rtol=1e-2
+            end
+            im_peak = maximum(abs.(chi_im_exact))
+            @test maximum(abs.(im_num[500:2000] .- chi_im_exact[500:2000])) / im_peak < 1e-3
         end
 
         @testset "urbach_tail" begin
