@@ -67,7 +67,9 @@ Block-average the matrix by integer factors along each axis.
 Axis values are averaged the same way as the data. A partial final block is
 averaged over the elements it contains (no data is dropped). Factors of 1
 return an identical copy. Records `:bin_time` / `:bin_wavelength` in metadata
-when the corresponding factor is > 1.
+when the corresponding factor is > 1; calling `bin_matrix` repeatedly multiplies
+the stored factors so the metadata always reflects the total binning applied
+(e.g. binning by 2 twice records `:bin_time => 4`).
 """
 function bin_matrix(m::TimeResolvedMatrix; time::Int=1, wavelength::Int=1)
     time >= 1 || throw(ArgumentError("bin_matrix: time factor must be >= 1, got $time"))
@@ -87,8 +89,8 @@ function bin_matrix(m::TimeResolvedMatrix; time::Int=1, wavelength::Int=1)
     end
 
     md = copy(m.metadata)
-    time > 1 && (md[:bin_time] = time)
-    wavelength > 1 && (md[:bin_wavelength] = wavelength)
+    time > 1 && (md[:bin_time] = get(md, :bin_time, 1) * time)
+    wavelength > 1 && (md[:bin_wavelength] = get(md, :bin_wavelength, 1) * wavelength)
     return TimeResolvedMatrix(new_time, new_wl, data, md)
 end
 

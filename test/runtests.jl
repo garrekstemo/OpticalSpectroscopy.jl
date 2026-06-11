@@ -2965,6 +2965,11 @@ Random.seed!(42)
         @test g2.signal == [11.0, 13.0, 15.0]
         @test g2.t_range == (1.0, 2.0)
         @test_throws ArgumentError integrate_time(m; t_range=(10.0, 20.0))
+
+        # KineticTrace extracted from a matrix carries :source, not :filename;
+        # source_file must fall back to :source
+        m_src = TimeResolvedMatrix(t, wl, data; metadata=Dict{Symbol,Any}(:source => "x.img"))
+        @test source_file(kinetic_trace(m_src; wavelength=510.0)) == "x.img"
     end
 
     @testset "bin_matrix" begin
@@ -2995,6 +3000,9 @@ Random.seed!(42)
         @test b3.data == m.data
         @test_throws ArgumentError bin_matrix(m; time=0)
         @test_throws ArgumentError bin_matrix(m; wavelength=0)
+
+        # repeated binning accumulates the factor: bin by 2 twice → :bin_time == 4
+        @test bin_matrix(b; time=2).metadata[:bin_time] == 4
 
         # both axes partial: 4 rows by 3 → 2 blocks; 6 cols by 4 → 2 blocks (last has 2)
         b4 = bin_matrix(m; time=3, wavelength=4)
@@ -3057,6 +3065,18 @@ Random.seed!(42)
         r_n = detect_cosmic_rays(m_n; threshold=8.0)
         @test issubset(Set(spikes), Set(r_n.indices))
         @test r_n.count <= 10
+
+        # Poisson shot noise on a bright band must not be over-flagged
+        rng2 = Random.MersenneTwister(21)
+        bright = [1000.0 * exp(-ti / 8.0) * exp(-((w - 550.0) / 20.0)^2) + 20.0 for ti in t, w in wl]
+        shot = bright .+ sqrt.(bright) .* randn(rng2, 20, 20)
+        r_shot = detect_cosmic_rays(TimeResolvedMatrix(t, wl, shot); threshold=8.0)
+        @test r_shot.count <= 2
+        # and a real CR on top of the bright band is still caught
+        shot_cr = copy(shot)
+        shot_cr[CartesianIndex(2, 11)] += 5000.0
+        r_shot_cr = detect_cosmic_rays(TimeResolvedMatrix(t, wl, shot_cr); threshold=8.0)
+        @test CartesianIndex(2, 11) in r_shot_cr.indices
     end
 
     @testset "Stretched exponential decay fit" begin
@@ -3079,6 +3099,10 @@ Random.seed!(42)
 
         @test occursin("β", sprint(show, MIME("text/plain"), fit))
         @test occursin("Stretched", format_results(fit))
+
+        pred = predict(fit, t)
+        @test length(pred) == length(t)
+        @test maximum(abs.(pred .- sig)) < 1e-3
 
         @test_throws ArgumentError fit_exp_decay(trace; model=:stretched, n_exp=2)
         @test_throws ArgumentError fit_exp_decay(trace; model=:stretched, irf=true)

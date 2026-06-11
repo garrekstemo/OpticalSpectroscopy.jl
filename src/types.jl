@@ -163,7 +163,7 @@ xdata(t::KineticTrace) = t.time
 ydata(t::KineticTrace) = t.signal
 xlabel(t::KineticTrace) = "Time ($(get(t.metadata, :time_unit, "ps")))"
 ylabel(t::KineticTrace) = String(get(t.metadata, :signal_label, "ΔA"))
-source_file(t::KineticTrace) = get(t.metadata, :filename, "")
+source_file(t::KineticTrace) = get(t.metadata, :filename, get(t.metadata, :source, ""))
 
 # Semantic accessors
 """
@@ -882,8 +882,12 @@ semantics live in `metadata` (see `:signal_label`, `:time_unit`).
 # Indexing
 ```julia
 matrix[λ=800]     # Extract KineticTrace at λ ≈ 800 nm
-matrix[t=1.0]     # Extract TASpectrum at t ≈ 1.0 ps
+matrix[t=1.0]     # Extract TASpectrum at t ≈ 1.0 ps (pump-probe convention, fixed units)
 ```
+
+`matrix[t=...]` returns a `TASpectrum` (pump-probe convention, wavenumber/wavelength
+axis with ΔA signal). For unit-aware time slices of generic time-resolved data,
+use [`spectral_slice`](@ref) instead.
 """
 struct TimeResolvedMatrix <: AbstractSpectroscopyData
     time::Vector{Float64}

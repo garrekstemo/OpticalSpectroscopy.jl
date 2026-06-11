@@ -736,6 +736,36 @@ end
 
 predict(fit::MultiexpDecayFit, trace::KineticTrace) = predict(fit, trace.time)
 
+"""
+    predict(fit::StretchedDecayFit, time::AbstractVector) -> Vector{Float64}
+
+Evaluate the fitted stretched-exponential model at each point in `time`:
+
+    A · exp(-((t - t₀)/τ)^β) + offset
+
+Pre-origin times (`t < t₀`) use `tt = max(t - t₀, 0)` to avoid complex or NaN
+values from raising a negative number to the fractional power `β`. This clamps
+the exponent term to 1 for `t < t₀`, returning `amplitude + offset` before the
+decay origin (consistent with how `ExpDecayFit.predict` handles the no-IRF case:
+it returns `offset` before `t₀`; here the decay value at the origin is used
+instead since there is no IRF branch).
+
+# Arguments
+- `fit`: a [`StretchedDecayFit`](@ref)
+- `time`: vector of time points at which to evaluate the model
+
+# Returns
+`Vector{Float64}` of length `length(time)`.
+"""
+function predict(fit::StretchedDecayFit, time::AbstractVector)
+    return [begin
+        tt = max(t - fit.t0, zero(eltype(time)))
+        fit.amplitude * exp(-(tt / fit.tau)^fit.beta) + fit.offset
+    end for t in time]
+end
+
+predict(fit::StretchedDecayFit, trace::KineticTrace) = predict(fit, trace.time)
+
 # =============================================================================
 # TA Spectrum Fitting (generalized N-peak model)
 # =============================================================================

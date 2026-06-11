@@ -588,11 +588,16 @@ end
 Detect cosmic ray hits in a 2D time × wavelength image.
 
 Computes the residual of the image over its 3×3 median filter (which smooths
-isolated spikes while preserving gradual spatial/temporal structure). The noise
-scale is estimated from the **positive residuals only**: their median `med₊` and
-MAD `MAD₊`. A pixel is flagged when
+isolated spikes while preserving gradual spatial/temporal structure). The
+residuals are then **Poisson-scaled** before the noise-floor computation: each
+residual is divided by `sqrt(max(filtered, 1))`, so shot noise in bright bands
+does not inflate the scale estimate. The `max(·, 1)` floor makes the scaling a
+no-op on ΔA-scale data (where all values are small), and Poisson-correct for
+photon-counting data (where `filtered ≈ N` counts). The noise scale is estimated
+from the **positive scaled residuals only**: their median `med₊` and MAD `MAD₊`.
+A pixel is flagged when
 
-    resid > med₊ + threshold × MAD₊ / 0.6745
+    scaled_resid > med₊ + threshold × MAD₊ / 0.6745
 
 Only positive outliers are flagged — cosmic rays deposit charge, so they are
 always bright.
@@ -618,7 +623,11 @@ values) — there is no noise floor to measure against in that regime.
 """
 function detect_cosmic_rays(m::TimeResolvedMatrix; threshold::Real=5.0,
                             row_fraction_limit::Real=0.25)
-    resid = m.data .- _median_filter3(m.data)
+    filtered = _median_filter3(m.data)
+    # Poisson-aware scaling: counts data has sqrt(N) shot noise, so normalize
+    # residuals by the local noise scale. The max(·, 1) floor makes this a
+    # no-op for small-amplitude (e.g. ΔA) data.
+    resid = (m.data .- filtered) ./ sqrt.(max.(filtered, 1.0))
     # Noise floor from POSITIVE residuals only: MAD over all residuals collapses
     # to 0 on smooth data (the median filter reproduces the background exactly,
     # so >50% of residuals are identically zero), which would disable detection
