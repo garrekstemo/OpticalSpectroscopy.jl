@@ -736,27 +736,11 @@ end
 
 predict(fit::MultiexpDecayFit, trace::KineticTrace) = predict(fit, trace.time)
 
-"""
-    predict(fit::StretchedDecayFit, time::AbstractVector) -> Vector{Float64}
-
-Evaluate the fitted stretched-exponential model at each point in `time`:
-
-    A · exp(-((t - t₀)/τ)^β) + offset
-
-Pre-origin times (`t < t₀`) use `tt = max(t - t₀, 0)` to avoid complex or NaN
-values from raising a negative number to the fractional power `β`. This clamps
-the exponent term to 1 for `t < t₀`, returning `amplitude + offset` before the
-decay origin (consistent with how `ExpDecayFit.predict` handles the no-IRF case:
-it returns `offset` before `t₀`; here the decay value at the origin is used
-instead since there is no IRF branch).
-
-# Arguments
-- `fit`: a [`StretchedDecayFit`](@ref)
-- `time`: vector of time points at which to evaluate the model
-
-# Returns
-`Vector{Float64}` of length `length(time)`.
-"""
+# Evaluate A·exp(-((t - t₀)/τ)^β) + offset at each time point. Pre-origin
+# times clamp to tt = max(t - t₀, 0) — negative^fractional would be complex —
+# so the model returns amplitude + offset (the value at the decay origin)
+# for t < t₀. Docstring-less like the sibling predict methods: docs CI
+# (checkdocs=:exports) flags method docstrings that aren't @docs-included.
 function predict(fit::StretchedDecayFit, time::AbstractVector)
     return [begin
         tt = max(t - fit.t0, zero(eltype(time)))
