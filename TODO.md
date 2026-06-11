@@ -32,9 +32,9 @@ Implemented in `src/chirp.jl`. Exports: `svd_filter`, `singular_values`.
 
 ---
 
-## ~~3. Multi-exponential global analysis for TAMatrix~~ ✓
+## ~~3. Multi-exponential global analysis for TimeResolvedMatrix~~ ✓
 
-Implemented. `fit_global` now supports `n_exp` kwarg for multi-exponential global analysis and `TAMatrix` dispatch with DAS extraction via `das()`. `GlobalFitResult` uses `taus::Vector{Float64}` and `amplitudes::Matrix{Float64}` (n_traces × n_exp).
+Implemented. `fit_global` now supports `n_exp` kwarg for multi-exponential global analysis and `TimeResolvedMatrix` dispatch with DAS extraction via `das()`. `GlobalFitResult` uses `taus::Vector{Float64}` and `amplitudes::Matrix{Float64}` (n_traces × n_exp).
 
 ---
 

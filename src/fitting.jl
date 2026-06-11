@@ -129,25 +129,36 @@ end
 # =============================================================================
 
 """
-    fit_exp_decay(trace::TATrace; n_exp=1, irf=false, irf_width=0.15, t_start=0.0, t_range=nothing)
+    fit_exp_decay(trace::KineticTrace; n_exp=1, irf=false, irf_width=0.15, t_start=0.0, t_range=nothing, model=:exponential)
 
-Fit exponential decay to a transient absorption trace.
+Fit an exponential decay model to a `KineticTrace`.
 
 # Arguments
-- `trace`: TATrace
+- `trace`: KineticTrace
 - `n_exp`: Number of exponential components (default 1)
 - `irf`: Include IRF convolution (default false)
 - `irf_width`: Initial guess for IRF σ in ps (default 0.15)
 - `t_start`: Start time for fitting when irf=false (default 0.0)
 - `t_range`: Optional (t_min, t_max) to restrict fit region
+- `model`: `:exponential` (default) or `:stretched` — Kohlrausch–Williams–Watts
 
 # Returns
 - `n_exp=1`: `ExpDecayFit`
 - `n_exp>1`: `MultiexpDecayFit`
+- `model=:stretched`: `StretchedDecayFit`
 """
-function fit_exp_decay(trace::TATrace; n_exp::Int=1, irf::Bool=false, irf_width::Float64=0.15,
-                       t_start::Float64=0.0, t_range=nothing)
+function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_width::Float64=0.15,
+                       t_start::Float64=0.0, t_range=nothing, model::Symbol=:exponential)
     @assert n_exp >= 1 "n_exp must be at least 1"
+
+    if model === :stretched
+        n_exp == 1 || throw(ArgumentError(
+            "model=:stretched fits a single stretched component; n_exp must be 1"))
+        irf && throw(ArgumentError("model=:stretched does not support IRF convolution"))
+        return _fit_stretched_decay(trace; t_start=t_start, t_range=t_range)
+    end
+    model === :exponential || throw(ArgumentError(
+        "unknown model: $model (expected :exponential or :stretched)"))
 
     if n_exp > 1
         return _fit_multiexp_decay(trace; n_exp=n_exp, irf=irf, irf_width=irf_width,
@@ -180,12 +191,12 @@ function fit_exp_decay(trace::TATrace; n_exp::Int=1, irf::Bool=false, irf_width:
         A0 = peak_val - offset0
         tau0 = (t_fit[end] - t_fit[1]) / 3.0
 
-        function model(p, t_vec)
+        function exp_model(p, t_vec)
             A, tau, offset = p
             return @. A * exp(-(t_vec - t_start) / abs(tau)) + offset
         end
 
-        prob = NonlinearCurveFitProblem(model, [A0, tau0, offset0], t_fit, signal_fit)
+        prob = NonlinearCurveFitProblem(exp_model, [A0, tau0, offset0], t_fit, signal_fit)
         sol = solve(prob)
 
         A, tau, offset = coef(sol)
@@ -199,10 +210,56 @@ function fit_exp_decay(trace::TATrace; n_exp::Int=1, irf::Bool=false, irf_width:
 end
 
 # =============================================================================
+# Stretched-exponential fitting (internal)
+# =============================================================================
+
+function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range=nothing)
+    t = trace.time
+    sig = trace.signal
+
+    if !isnothing(t_range)
+        mask = (t .>= t_range[1]) .& (t .<= t_range[2])
+        origin = float(t_range[1])
+    else
+        mask = t .>= t_start
+        origin = t_start
+    end
+    count(mask) >= 5 || throw(ArgumentError(
+        "fit region contains $(count(mask)) points; need at least 5"))
+
+    t_fit = t[mask] .- origin
+    t_fit = max.(t_fit, eps(Float64))  # avoid NaN gradient of (t/τ)^β at t = 0
+    signal_fit = sig[mask]
+
+    signal_type = first(_detect_signal_type(signal_fit))
+    peak_val = signal_type == :esa ? maximum(signal_fit) : minimum(signal_fit)
+    n_end = max(1, min(10, length(signal_fit) ÷ 4))
+    offset0 = mean(signal_fit[end-n_end+1:end])
+    A0 = peak_val - offset0
+    tau0 = (t_fit[end] - t_fit[1]) / 3.0
+
+    function model(p, tv)
+        A, tau, beta, offset = p
+        return stretched_exponential([A, abs(tau), clamp(beta, 0.05, 1.0), offset], tv)
+    end
+
+    prob = NonlinearCurveFitProblem(model, [A0, tau0, 0.8, offset0], t_fit, signal_fit)
+    sol = solve(prob)
+    A, tau, beta, offset = coef(sol)
+
+    beta_c = clamp(beta, 0.05, 1.0)
+    beta_c <= 0.051 && @warn "stretched fit: β converged to the lower clamp (0.05); fit may be unreliable or the data is non-KWW"
+    beta_c >= 0.999 && @warn "stretched fit: β converged to the upper clamp (1.0); consider model=:exponential"
+
+    return StretchedDecayFit(A, abs(tau), beta_c, origin, offset,
+                             signal_type, residuals(sol), _rsquared(signal_fit, rss(sol)))
+end
+
+# =============================================================================
 # Multi-exponential fitting (internal)
 # =============================================================================
 
-function _fit_multiexp_decay(trace::TATrace; n_exp::Int, irf::Bool, irf_width::Float64,
+function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_width::Float64,
                              t_start::Float64, t_range)
     t = trace.time
     signal = trace.signal
@@ -328,7 +385,7 @@ end
 # =============================================================================
 
 """
-    fit_global(traces::Vector{TATrace}; n_exp=1, irf_width=0.15, labels=nothing) -> GlobalFitResult
+    fit_global(traces::Vector{KineticTrace}; n_exp=1, irf_width=0.15, labels=nothing) -> GlobalFitResult
 
 Fit multiple traces simultaneously with shared time constant(s) τ.
 
@@ -354,7 +411,7 @@ result = fit_global([trace1, trace2, trace3]; n_exp=2)
 report(result)
 ```
 """
-function fit_global(traces::Vector{TATrace}; n_exp::Int=1, irf_width::Float64=0.15, labels=nothing)
+function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float64=0.15, labels=nothing)
     n_traces = length(traces)
     @assert n_traces >= 2 "Need at least 2 traces for global fitting"
     @assert n_exp >= 1 "n_exp must be at least 1"
@@ -472,10 +529,10 @@ function fit_global(traces::Vector{TATrace}; n_exp::Int=1, irf_width::Float64=0.
 end
 
 """
-    fit_global(matrix::TAMatrix; n_exp=1, irf_width=0.15, λ=nothing,
+    fit_global(matrix::TimeResolvedMatrix; n_exp=1, irf_width=0.15, λ=nothing,
                max_wavelengths=200) -> GlobalFitResult
 
-Global analysis of a TAMatrix, extracting traces at each wavelength.
+Global analysis of a TimeResolvedMatrix, extracting traces at each wavelength.
 
 Returns a `GlobalFitResult` with the `wavelengths` field populated,
 enabling decay-associated spectra (DAS) via `das(result)`.
@@ -503,7 +560,7 @@ spectra = das(result)  # n_exp × n_wavelengths matrix
 result = fit_global(matrix; n_exp=2, λ=range(450, 750, length=50))
 ```
 """
-function fit_global(matrix::TAMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=nothing,
+function fit_global(matrix::TimeResolvedMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=nothing,
                     max_wavelengths::Int=200)
     if isnothing(λ)
         wavelengths = matrix.wavelength
@@ -522,7 +579,7 @@ function fit_global(matrix::TAMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=
             "or an SVD/coarse-grained selection), or raise max_wavelengths if you accept the cost."))
     end
 
-    traces = TATrace[]
+    traces = KineticTrace[]
     actual_wavelengths = Float64[]
     for wl in wavelengths
         tr = matrix[λ=wl]
@@ -546,6 +603,74 @@ function fit_global(matrix::TAMatrix; n_exp::Int=1, irf_width::Float64=0.15, λ=
 end
 
 # =============================================================================
+# fit_lifetime_spectrum: per-wavelength-bin decay fitting
+# =============================================================================
+
+"""
+    fit_lifetime_spectrum(m::TimeResolvedMatrix; n_exp=1, nbins=32,
+                          t_range=nothing, min_signal=0.0) -> LifetimeSpectrumResult
+
+Fit an exponential decay in each of `nbins` equal-width wavelength bins.
+
+Each bin's columns are averaged into a kinetic trace and fitted with
+[`fit_exp_decay`](@ref). Bins with no wavelength points, peak |signal| below
+`min_signal`, or a failed fit are skipped (NaN entries, `fitted[i] == false`).
+
+# Arguments
+- `m`: time × wavelength matrix
+- `n_exp`: exponential components per bin fit (default 1)
+- `nbins`: number of equal-width wavelength bins (default 32)
+- `t_range`: optional `(t_lo, t_hi)` fit window passed to `fit_exp_decay`
+- `min_signal`: skip bins whose peak |signal| is below this (default 0.0 = fit all)
+"""
+function fit_lifetime_spectrum(m::TimeResolvedMatrix; n_exp::Int=1, nbins::Int=32,
+                               t_range=nothing, min_signal::Real=0.0)
+    nbins >= 1 || throw(ArgumentError("nbins must be >= 1, got $nbins"))
+    n_exp >= 1 || throw(ArgumentError("n_exp must be >= 1, got $n_exp"))
+    wl_lo, wl_hi = extrema(m.wavelength)
+    edges = range(wl_lo, wl_hi; length=nbins + 1)
+
+    centers = fill(NaN, nbins)
+    taus = fill(NaN, nbins, n_exp)
+    amplitudes = fill(NaN, nbins, n_exp)
+    rsq = fill(NaN, nbins)
+    fitted = falses(nbins)
+
+    for i in 1:nbins
+        cols = i == nbins ?
+            findall(w -> edges[i] <= w <= edges[i+1], m.wavelength) :
+            findall(w -> edges[i] <= w < edges[i+1], m.wavelength)
+        isempty(cols) && continue
+        centers[i] = mean(view(m.wavelength, cols))
+        sig = vec(mean(view(m.data, :, cols), dims=2))
+        maximum(abs, sig) < min_signal && continue
+
+        trace = KineticTrace(copy(m.time), sig;
+                             wavelength=centers[i], metadata=copy(m.metadata))
+        fit = try
+            fit_exp_decay(trace; n_exp=n_exp, t_range=t_range)
+        catch e
+            e isa InterruptException && rethrow()
+            continue
+        end
+
+        if fit isa ExpDecayFit
+            taus[i, 1] = fit.tau
+            amplitudes[i, 1] = fit.amplitude
+        elseif fit isa MultiexpDecayFit
+            taus[i, :] .= fit.taus
+            amplitudes[i, :] .= fit.amplitudes
+        else
+            continue
+        end
+        rsq[i] = fit.rsquared
+        fitted[i] = true
+    end
+
+    return LifetimeSpectrumResult(centers, taus, amplitudes, rsq, fitted, n_exp)
+end
+
+# =============================================================================
 # Predict functions for fit results
 # =============================================================================
 
@@ -559,9 +684,9 @@ function predict(fit::ExpDecayFit, time::AbstractVector)
     end
 end
 
-predict(fit::ExpDecayFit, trace::TATrace) = predict(fit, trace.time)
+predict(fit::ExpDecayFit, trace::KineticTrace) = predict(fit, trace.time)
 
-function predict(fit::GlobalFitResult, traces::Vector{TATrace})
+function predict(fit::GlobalFitResult, traces::Vector{KineticTrace})
     n = length(traces)
     curves = Vector{Vector{Float64}}(undef, n)
     for i in 1:n
@@ -572,7 +697,7 @@ function predict(fit::GlobalFitResult, traces::Vector{TATrace})
     return curves
 end
 
-function predict(fit::GlobalFitResult, matrix::TAMatrix)
+function predict(fit::GlobalFitResult, matrix::TimeResolvedMatrix)
     # The reconstruction lives on the FITTED wavelength axis, which may be a
     # subset of the matrix grid (fit_global(matrix; λ=subset)). Column j of
     # the output corresponds to fit.wavelengths[j] / fit.amplitudes[j, :].
@@ -588,7 +713,7 @@ function predict(fit::GlobalFitResult, matrix::TAMatrix)
 
     metadata = copy(matrix.metadata)
     metadata[:reconstructed] = true
-    return TAMatrix(matrix.time, wavelengths, reconstructed, metadata)
+    return TimeResolvedMatrix(matrix.time, wavelengths, reconstructed, metadata)
 end
 
 
@@ -609,7 +734,21 @@ function predict(fit::MultiexpDecayFit, time::AbstractVector)
     end
 end
 
-predict(fit::MultiexpDecayFit, trace::TATrace) = predict(fit, trace.time)
+predict(fit::MultiexpDecayFit, trace::KineticTrace) = predict(fit, trace.time)
+
+# Evaluate A·exp(-((t - t₀)/τ)^β) + offset at each time point. Pre-origin
+# times clamp to tt = max(t - t₀, 0) — negative^fractional would be complex —
+# so the model returns amplitude + offset (the value at the decay origin)
+# for t < t₀. Docstring-less like the sibling predict methods: docs CI
+# (checkdocs=:exports) flags method docstrings that aren't @docs-included.
+function predict(fit::StretchedDecayFit, time::AbstractVector)
+    return [begin
+        tt = max(t - fit.t0, zero(eltype(time)))
+        fit.amplitude * exp(-(tt / fit.tau)^fit.beta) + fit.offset
+    end for t in time]
+end
+
+predict(fit::StretchedDecayFit, trace::KineticTrace) = predict(fit, trace.time)
 
 # =============================================================================
 # TA Spectrum Fitting (generalized N-peak model)

@@ -17,46 +17,46 @@ Random.seed!(42)
     end
 
     @testset "Type hierarchy" begin
-        @test TATrace <: AbstractSpectroscopyData
+        @test KineticTrace <: AbstractSpectroscopyData
         @test TASpectrum <: AbstractSpectroscopyData
-        @test TAMatrix <: AbstractSpectroscopyData
+        @test TimeResolvedMatrix <: AbstractSpectroscopyData
     end
 
     @testset "Constructor shape validation" begin
-        # TATrace: time and signal must have equal length
-        @test_throws ArgumentError TATrace([1.0, 2.0, 3.0], [1.0, 2.0])
-        err = try TATrace([1.0, 2.0, 3.0], [1.0, 2.0]) catch e; e end
+        # KineticTrace: time and signal must have equal length
+        @test_throws ArgumentError KineticTrace([1.0, 2.0, 3.0], [1.0, 2.0])
+        err = try KineticTrace([1.0, 2.0, 3.0], [1.0, 2.0]) catch e; e end
         @test occursin("3", err.msg) && occursin("2", err.msg)
         # positional (inner) path validates too
-        @test_throws ArgumentError TATrace([1.0, 2.0, 3.0], [1.0, 2.0], NaN, Dict{Symbol,Any}())
+        @test_throws ArgumentError KineticTrace([1.0, 2.0, 3.0], [1.0, 2.0], NaN, Dict{Symbol,Any}())
         # valid construction unaffected
-        @test TATrace([1.0, 2.0], [0.1, 0.2]) isa TATrace
+        @test KineticTrace([1.0, 2.0], [0.1, 0.2]) isa KineticTrace
 
         # TASpectrum: wavenumber and signal must have equal length
         @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3])
         @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3], NaN, Dict{Symbol,Any}())
         @test TASpectrum([2000.0, 2050.0], [0.1, 0.2]) isa TASpectrum
 
-        # TAMatrix: data must be (n_time, n_wavelength)
+        # TimeResolvedMatrix: data must be (n_time, n_wavelength)
         time = collect(0.0:1.0:10.0)        # 11 points
         wl = collect(500.0:10.0:650.0)      # 16 points
         good = zeros(length(time), length(wl))
-        @test TAMatrix(time, wl, good) isa TAMatrix
+        @test TimeResolvedMatrix(time, wl, good) isa TimeResolvedMatrix
 
         # transposed data: error must name the expected shape and suggest permutedims
         bad_t = zeros(length(wl), length(time))
-        @test_throws ArgumentError TAMatrix(time, wl, bad_t)
-        err_t = try TAMatrix(time, wl, bad_t) catch e; e end
+        @test_throws ArgumentError TimeResolvedMatrix(time, wl, bad_t)
+        err_t = try TimeResolvedMatrix(time, wl, bad_t) catch e; e end
         @test occursin("(16, 11)", err_t.msg)
         @test occursin("(11, 16)", err_t.msg)
         @test occursin("permutedims", err_t.msg)
 
         # arbitrary wrong shape also throws (positional path)
-        @test_throws ArgumentError TAMatrix(time, wl, zeros(3, 4), Dict{Symbol,Any}())
+        @test_throws ArgumentError TimeResolvedMatrix(time, wl, zeros(3, 4), Dict{Symbol,Any}())
     end
 
-    @testset "AbstractSpectroscopyData interface - TATrace" begin
-        trace = TATrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
+    @testset "AbstractSpectroscopyData interface - KineticTrace" begin
+        trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
 
         @test xdata(trace) == [0.0, 1.0, 2.0]
         @test ydata(trace) == [0.1, 0.5, 0.3]
@@ -95,15 +95,15 @@ Random.seed!(42)
         @test isnan(sd_nan.X[end, end])
 
         # SweepData is NOT a subtype of AbstractSpectroscopyData (it's raw lock-in
-        # output, not a finished spectroscopy product like TATrace).
+        # output, not a finished spectroscopy product like KineticTrace).
         @test !(SweepData <: AbstractSpectroscopyData)
     end
 
-    @testset "AbstractSpectroscopyData interface - TAMatrix" begin
+    @testset "AbstractSpectroscopyData interface - TimeResolvedMatrix" begin
         time = [0.0, 1.0, 2.0]
         wavelength = [800.0, 850.0, 900.0]
         data = rand(3, 3)
-        matrix = TAMatrix(time, wavelength, data)
+        matrix = TimeResolvedMatrix(time, wavelength, data)
 
         @test xdata(matrix) == wavelength
         @test ydata(matrix) == time
@@ -114,20 +114,20 @@ Random.seed!(42)
         @test is_matrix(matrix) == true
 
         # Test wavenumber detection
-        matrix_wn = TAMatrix(time, [1900.0, 2000.0, 2100.0], data)
+        matrix_wn = TimeResolvedMatrix(time, [1900.0, 2000.0, 2100.0], data)
         @test xlabel(matrix_wn) == "Wavenumber (cm⁻¹)"
     end
 
     @testset "Extended interface - source_file, npoints, title" begin
-        # TATrace
-        trace = TATrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3];
+        # KineticTrace
+        trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3];
                         metadata=Dict{Symbol,Any}(:filename => "test.lvm"))
         @test source_file(trace) == "test.lvm"
         @test npoints(trace) == 3
         @test title(trace) == "test.lvm"
 
-        # TATrace without filename
-        trace_empty = TATrace([0.0, 1.0], [0.1, 0.2])
+        # KineticTrace without filename
+        trace_empty = KineticTrace([0.0, 1.0], [0.1, 0.2])
         @test source_file(trace_empty) == ""
         @test npoints(trace_empty) == 2
         @test title(trace_empty) == ""
@@ -139,19 +139,19 @@ Random.seed!(42)
         @test npoints(spec) == 3
         @test title(spec) == "spec.lvm"
 
-        # TAMatrix
+        # TimeResolvedMatrix
         time = [0.0, 1.0, 2.0]
         wavelength = [800.0, 850.0, 900.0, 950.0]
         data = rand(3, 4)
-        matrix = TAMatrix(time, wavelength, data;
+        matrix = TimeResolvedMatrix(time, wavelength, data;
                           metadata=Dict{Symbol,Any}(:source => "broadband-TA/"))
         @test source_file(matrix) == "broadband-TA/"
         @test npoints(matrix) == (3, 4)
         @test title(matrix) == "broadband-TA/"
     end
 
-    @testset "Semantic accessors - TATrace" begin
-        trace = TATrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
+    @testset "Semantic accessors - KineticTrace" begin
+        trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
         @test delay(trace) === trace.time
         @test signal(trace) === trace.signal
     end
@@ -162,25 +162,25 @@ Random.seed!(42)
         @test signal(spec) === spec.signal
     end
 
-    @testset "Semantic accessors - TAMatrix" begin
+    @testset "Semantic accessors - TimeResolvedMatrix" begin
         time = [0.0, 1.0, 2.0]
         wl = [800.0, 850.0, 900.0]
         data = rand(3, 3)
-        matrix = TAMatrix(time, wl, data)
+        matrix = TimeResolvedMatrix(time, wl, data)
         @test wavelength(matrix) === matrix.wavelength
         @test delay(matrix) === matrix.time
         @test signal(matrix) === matrix.data
     end
 
-    @testset "TAMatrix indexing" begin
+    @testset "TimeResolvedMatrix indexing" begin
         time = [0.0, 1.0, 2.0, 3.0, 4.0]
         wavelength = [700.0, 750.0, 800.0, 850.0]
         data = rand(5, 4)
-        matrix = TAMatrix(time, wavelength, data)
+        matrix = TimeResolvedMatrix(time, wavelength, data)
 
-        # Extract TATrace at wavelength
+        # Extract KineticTrace at wavelength
         trace = matrix[λ=800]
-        @test trace isa TATrace
+        @test trace isa KineticTrace
         @test length(trace.time) == 5
         @test trace.wavelength ≈ 800.0
 
@@ -381,7 +381,7 @@ Random.seed!(42)
         # Add small noise
         signal .+= 0.001 .* randn(length(signal))
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; irf=true, irf_width=0.2)
 
         @test result isa ExpDecayFit
@@ -399,7 +399,7 @@ Random.seed!(42)
         signal = @. A_true * exp(-t / tau_true) + offset_true
         signal .+= 0.001 .* randn(length(signal))
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; irf=false)
 
         @test result isa ExpDecayFit
@@ -421,7 +421,7 @@ Random.seed!(42)
                   for ti in t]
         signal .+= 0.002 .* randn(length(signal))
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; n_exp=2, irf=true, irf_width=0.2)
 
         @test result isa MultiexpDecayFit
@@ -438,7 +438,7 @@ Random.seed!(42)
                   for ti in t]
         signal .+= 0.002 .* randn(length(signal))
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
 
         # n_exp=2
         result2 = fit_exp_decay(trace; n_exp=2, irf=true, irf_width=0.2)
@@ -470,8 +470,8 @@ Random.seed!(42)
         signal_gsb = [OpticalSpectroscopy._exp_decay_irf_conv(ti, -0.5, tau_true, 0.0, sigma_true) - 0.005
                       for ti in t]
 
-        trace_esa = TATrace(t, signal_esa)
-        trace_gsb = TATrace(t, signal_gsb)
+        trace_esa = KineticTrace(t, signal_esa)
+        trace_gsb = KineticTrace(t, signal_gsb)
 
         result = fit_global([trace_esa, trace_gsb]; n_exp=1, labels=["ESA", "GSB"], irf_width=0.2)
 
@@ -506,8 +506,8 @@ Random.seed!(42)
                    OpticalSpectroscopy._exp_decay_irf_conv(ti, -0.5, tau2_true, 0.0, sigma_true) - 0.005
                    for ti in t]
 
-        trace1 = TATrace(t, signal1)
-        trace2 = TATrace(t, signal2)
+        trace1 = KineticTrace(t, signal1)
+        trace2 = KineticTrace(t, signal2)
 
         result = fit_global([trace1, trace2]; n_exp=2, irf_width=0.2, labels=["ESA", "GSB"])
 
@@ -521,7 +521,7 @@ Random.seed!(42)
         @test OpticalSpectroscopy.n_exp(result) == 2
     end
 
-    @testset "Global fitting - TAMatrix dispatch" begin
+    @testset "Global fitting - TimeResolvedMatrix dispatch" begin
         t = collect(-2.0:0.2:30.0)
         wavelength = collect(500.0:20.0:700.0)
         tau_true = 5.0
@@ -535,7 +535,7 @@ Random.seed!(42)
             end
         end
 
-        matrix = TAMatrix(t, wavelength, data)
+        matrix = TimeResolvedMatrix(t, wavelength, data)
         result = fit_global(matrix; n_exp=1, irf_width=0.2)
 
         @test result isa GlobalFitResult
@@ -563,7 +563,7 @@ Random.seed!(42)
                 data_big[i, j] = OpticalSpectroscopy._exp_decay_irf_conv(ti, amp, 5.0, 0.0, 0.3) + 0.01
             end
         end
-        matrix_big = TAMatrix(t, wl_big, data_big)
+        matrix_big = TimeResolvedMatrix(t, wl_big, data_big)
 
         @test_throws ArgumentError fit_global(matrix_big; n_exp=1)
         err = try
@@ -586,7 +586,7 @@ Random.seed!(42)
         # max_wavelengths override is respected (lowering the threshold)
         wl_small = collect(range(500.0, 700.0, length=5))
         data_small = data_big[:, [1, 75, 150, 225, 300]]
-        matrix_small = TAMatrix(t, wl_small, data_small)
+        matrix_small = TimeResolvedMatrix(t, wl_small, data_small)
         @test_throws ArgumentError fit_global(matrix_small; n_exp=1, max_wavelengths=3)
         # ... and raising it allows the fit through
         fit_small = fit_global(matrix_small; n_exp=1, irf_width=0.2, max_wavelengths=10)
@@ -594,7 +594,7 @@ Random.seed!(42)
         @test length(fit_small.wavelengths) == 5
     end
 
-    @testset "predict(GlobalFitResult, TAMatrix) with wavelength subset" begin
+    @testset "predict(GlobalFitResult, TimeResolvedMatrix) with wavelength subset" begin
         t = collect(-2.0:0.2:30.0)
         wavelength = collect(500.0:20.0:700.0)  # 11 wavelengths
         tau_true = 5.0
@@ -607,7 +607,7 @@ Random.seed!(42)
                 data[i, j] = OpticalSpectroscopy._exp_decay_irf_conv(ti, amp, tau_true, 0.0, sigma_true) + 0.01
             end
         end
-        matrix = TAMatrix(t, wavelength, data)
+        matrix = TimeResolvedMatrix(t, wavelength, data)
 
         # Fit a subset at the HIGH end of the grid: full-grid indices (7, 9, 11)
         # exceed the subset column count, so any full-grid indexing bug
@@ -617,7 +617,7 @@ Random.seed!(42)
         @test fit.wavelengths ≈ λ_subset
 
         recon = predict(fit, matrix)
-        @test recon isa TAMatrix
+        @test recon isa TimeResolvedMatrix
         @test size(recon.data) == (length(t), length(λ_subset))
         @test recon.wavelength ≈ λ_subset
         @test recon.time == t
@@ -654,7 +654,7 @@ Random.seed!(42)
         signal = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 1.0, 5.0, 0.0, 0.3) + 0.01
                   for ti in t]
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; irf=true, irf_width=0.2)
 
         curve = predict(result, trace)
@@ -672,7 +672,7 @@ Random.seed!(42)
                   OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.5, 15.0, 0.0, 0.3) + 0.01
                   for ti in t]
 
-        trace = TATrace(t, signal)
+        trace = KineticTrace(t, signal)
         result = fit_exp_decay(trace; n_exp=2, irf=true, irf_width=0.2)
 
         curve = predict(result, trace)
@@ -1199,10 +1199,10 @@ Random.seed!(42)
 
             data = signal .+ background
             metadata = Dict{Symbol,Any}(:source => "test")
-            matrix = TAMatrix(time, wavelength, data, metadata)
+            matrix = TimeResolvedMatrix(time, wavelength, data, metadata)
 
             corrected = subtract_background(matrix)
-            @test corrected isa TAMatrix
+            @test corrected isa TimeResolvedMatrix
             @test size(corrected.data) == size(matrix.data)
             @test corrected.metadata[:background_subtracted] == true
             @test haskey(corrected.metadata, :baseline_t_range)
@@ -1239,7 +1239,7 @@ Random.seed!(42)
             end
 
             metadata = Dict{Symbol,Any}(:source => "synthetic")
-            matrix = TAMatrix(time, wavelength, data, metadata)
+            matrix = TimeResolvedMatrix(time, wavelength, data, metadata)
 
             cal = detect_chirp(matrix; order=2, reference=ref_λ, smooth_window=7, bin_width=4)
             @test cal isa ChirpCalibration
@@ -1273,7 +1273,7 @@ Random.seed!(42)
             end
 
             metadata = Dict{Symbol,Any}(:source => "synthetic")
-            matrix = TAMatrix(time, wavelength, data, metadata)
+            matrix = TimeResolvedMatrix(time, wavelength, data, metadata)
 
             cal = ChirpCalibration(
                 collect(wavelength),
@@ -1286,7 +1286,7 @@ Random.seed!(42)
             )
 
             corrected = correct_chirp(matrix, cal)
-            @test corrected isa TAMatrix
+            @test corrected isa TimeResolvedMatrix
             @test size(corrected.data) == size(matrix.data)
             @test corrected.metadata[:chirp_corrected] == true
 
@@ -1354,7 +1354,7 @@ Random.seed!(42)
             wavelength = collect(range(500.0, 700.0, length=n_wl))
             data = zeros(n_time, n_wl)
             metadata = Dict{Symbol,Any}(:source => "flat")
-            matrix = TAMatrix(time, wavelength, data, metadata)
+            matrix = TimeResolvedMatrix(time, wavelength, data, metadata)
 
             corrected = subtract_background(matrix)
             @test all(corrected.data .== 0.0)
@@ -1379,7 +1379,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
 
             cal = detect_chirp(matrix; method=:threshold, order=1,
                                reference=ref_λ, smooth_window=7, bin_width=4)
@@ -1408,7 +1408,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; method=:threshold, order=1,
                                reference=ref_λ, smooth_window=7, bin_width=4)
 
@@ -1425,7 +1425,7 @@ Random.seed!(42)
             time = collect(range(-5.0, 15.0, length=n_time))
             wavelength = collect(range(500.0, 700.0, length=n_wl))
             data = rand(n_time, n_wl)
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
 
             @test_throws ArgumentError detect_chirp(matrix; order=0)
             @test_throws ArgumentError detect_chirp(matrix; bin_width=0)
@@ -1453,7 +1453,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; smooth_window=10, order=1, bin_width=4)
             @test cal isa ChirpCalibration
             @test cal.metadata[:smooth_window] == 11
@@ -1479,7 +1479,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; order=1, reference=ref_λ, smooth_window=7, bin_width=4)
 
             poly = polynomial(cal)
@@ -1506,7 +1506,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
 
             # Exact calibration — no detection noise
             cal = ChirpCalibration(
@@ -1541,11 +1541,11 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; order=2, reference=ref_λ, bin_width=4)
             corrected = correct_chirp(matrix, cal)
 
-            @test corrected isa TAMatrix
+            @test corrected isa TimeResolvedMatrix
             @test corrected.metadata[:chirp_corrected] == true
 
             # After correction, onset times should be more aligned
@@ -1605,7 +1605,7 @@ Random.seed!(42)
                 end
             end
 
-            matrix = TAMatrix(time, wavelength, data)
+            matrix = TimeResolvedMatrix(time, wavelength, data)
             cal = detect_chirp(matrix; order=1, bin_width=4)
 
             @test haskey(cal.metadata, :mad_threshold)
@@ -1635,8 +1635,8 @@ Random.seed!(42)
         noise = 0.02 * randn(50, 30)
         noisy_data = signal .+ noise
 
-        @testset "singular_values - TAMatrix" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+        @testset "singular_values - TimeResolvedMatrix" begin
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
             sv = singular_values(matrix)
             @test length(sv) == min(50, 30)
             @test issorted(sv, rev=true)
@@ -1649,11 +1649,11 @@ Random.seed!(42)
             @test issorted(sv, rev=true)
         end
 
-        @testset "svd_filter - TAMatrix denoising" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+        @testset "svd_filter - TimeResolvedMatrix denoising" begin
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
             filtered = svd_filter(matrix; n_components=2)
 
-            @test filtered isa TAMatrix
+            @test filtered isa TimeResolvedMatrix
             @test size(filtered.data) == size(matrix.data)
             @test filtered.time == matrix.time
             @test filtered.wavelength == matrix.wavelength
@@ -1676,7 +1676,7 @@ Random.seed!(42)
         end
 
         @testset "svd_filter - n_components=1 keeps dominant component" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
             filtered = svd_filter(matrix; n_components=1)
 
             # Rank-1 approximation
@@ -1684,7 +1684,7 @@ Random.seed!(42)
         end
 
         @testset "svd_filter - full rank preserves data" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
             max_comp = min(size(noisy_data)...)
             filtered = svd_filter(matrix; n_components=max_comp)
 
@@ -1692,7 +1692,7 @@ Random.seed!(42)
         end
 
         @testset "svd_filter - input validation" begin
-            matrix = TAMatrix(time, wavelength, noisy_data)
+            matrix = TimeResolvedMatrix(time, wavelength, noisy_data)
 
             @test_throws ArgumentError svd_filter(matrix; n_components=0)
             @test_throws ArgumentError svd_filter(matrix; n_components=100)
@@ -2861,6 +2861,307 @@ Random.seed!(42)
 
         fig3 = plot_fit(fit; components=true, baseline=true)
         @test fig3 isa Makie.Figure
+    end
+
+    @testset "Metadata-driven labels" begin
+        md = Dict{Symbol,Any}(:time_unit => "ns", :signal_label => "Counts")
+        tr = KineticTrace([0.0, 1.0], [1.0, 0.5]; metadata=md)
+        @test xlabel(tr) == "Time (ns)"
+        @test ylabel(tr) == "Counts"
+        @test occursin("ns", sprint(show, tr))
+
+        tr_default = KineticTrace([0.0, 1.0], [1.0, 0.5])
+        @test xlabel(tr_default) == "Time (ps)"
+        @test ylabel(tr_default) == "ΔA"
+
+        m = TimeResolvedMatrix([0.0, 1.0], [500.0, 510.0], [1.0 2.0; 3.0 4.0]; metadata=md)
+        @test ylabel(m) == "Time (ns)"
+        @test zlabel(m) == "Counts"
+        @test occursin("ns", sprint(show, m))
+        @test occursin("ns", sprint(show, MIME("text/plain"), tr))
+        @test occursin("ns", sprint(show, MIME("text/plain"), m))
+        @test xlabel(m[λ=505.0]) == "Time (ns)"
+    end
+
+    @testset "GatedSpectrum" begin
+        g = GatedSpectrum([500.0, 510.0, 520.0], [1.0, 2.0, 1.5];
+                          t_range=(0.0, 5.0),
+                          metadata=Dict{Symbol,Any}(:time_unit => "ns"))
+        @test g isa AbstractSpectroscopyData
+        @test xdata(g) == [500.0, 510.0, 520.0]
+        @test ydata(g) == [1.0, 2.0, 1.5]
+        @test wavelength(g) == g.wavelength
+        @test signal(g) == g.signal
+        @test g.t_range == (0.0, 5.0)
+        @test xlabel(g) == "Wavelength (nm)"
+        @test occursin("0.0 to 5.0 ns", sprint(show, g))
+        @test_throws ArgumentError GatedSpectrum([1.0, 2.0], [1.0])
+        g2 = GatedSpectrum([500.0], [1.0])
+        @test all(isnan, g2.t_range)
+        @test ylabel(g) == "ΔA"
+        g_pl = GatedSpectrum([500.0], [1.0]; metadata=Dict{Symbol,Any}(:signal_label => "Counts"))
+        @test ylabel(g_pl) == "Counts"
+        g_wn = GatedSpectrum([1500.0, 1600.0], [1.0, 2.0])
+        @test xlabel(g_wn) == "Wavenumber (cm⁻¹)"
+        @test occursin("Time gate", sprint(show, MIME("text/plain"), g))
+        g_empty = GatedSpectrum(Float64[], Float64[])
+        @test xlabel(g_empty) == "Wavelength (nm)"
+        @test occursin("0 points", sprint(show, g_empty))
+        @test sprint(show, MIME("text/plain"), g_empty) isa String
+        @test occursin("500.0 to 520.0 nm", sprint(show, g))
+        g_src = GatedSpectrum([500.0], [1.0]; metadata=Dict{Symbol,Any}(:source => "demo.img"))
+        @test occursin("demo.img", sprint(show, MIME("text/plain"), g_src))
+    end
+
+    @testset "TimeResolvedMatrix slices" begin
+        t = [0.0, 1.0, 2.0]
+        wl = [500.0, 510.0, 520.0]
+        data = [1.0 2.0 3.0;
+                4.0 5.0 6.0;
+                7.0 8.0 9.0]   # rows = time, cols = wavelength
+        md = Dict{Symbol,Any}(:signal_label => "Counts", :time_unit => "ns")
+        m = TimeResolvedMatrix(t, wl, data; metadata=md)
+
+        # nearest single column
+        tr = kinetic_trace(m; wavelength=511.0)
+        @test tr isa KineticTrace
+        @test tr.signal == [2.0, 5.0, 8.0]
+        @test tr.wavelength == 510.0
+        @test tr.metadata[:signal_label] == "Counts"
+
+        # band mean over all three columns (510 ± 10 → [500, 520])
+        tr_band = kinetic_trace(m; wavelength=510.0, band=20.0)
+        @test tr_band.signal == [2.0, 5.0, 8.0]
+        @test tr_band.wavelength == 510.0
+        @test tr_band.metadata[:band] == 20.0
+        @test !haskey(tr.metadata, :band)
+        @test integrate_time(m).metadata[:signal_label] == "Counts"
+        @test_throws ArgumentError kinetic_trace(m; wavelength=NaN)
+
+        # empty band falls back to nearest column (deterministic: argmin ties break to first)
+        tr_fb = kinetic_trace(m; wavelength=505.0, band=2.0)
+        @test tr_fb.signal == [1.0, 4.0, 7.0]
+        @test tr_fb.wavelength == 500.0
+
+        # nearest single row
+        sp = spectral_slice(m; time=1.2)
+        @test sp isa GatedSpectrum
+        @test sp.signal == [4.0, 5.0, 6.0]
+        @test sp.t_range == (1.0, 1.0)
+        @test sp.metadata[:time_unit] == "ns"
+
+        # gated mean over rows 2:3 (1.5 ± 1 → [0.5, 2.5])
+        sp_win = spectral_slice(m; time=1.5, window=2.0)
+        @test sp_win.signal == [5.5, 6.5, 7.5]
+        @test sp_win.t_range == (1.0, 2.0)
+
+        # time-integrated spectrum (sum)
+        g = integrate_time(m)
+        @test g isa GatedSpectrum
+        @test g.signal == [12.0, 15.0, 18.0]
+        @test g.t_range == (0.0, 2.0)
+
+        g2 = integrate_time(m; t_range=(1.0, 2.0))
+        @test g2.signal == [11.0, 13.0, 15.0]
+        @test g2.t_range == (1.0, 2.0)
+        @test_throws ArgumentError integrate_time(m; t_range=(10.0, 20.0))
+
+        # KineticTrace extracted from a matrix carries :source, not :filename;
+        # source_file must fall back to :source
+        m_src = TimeResolvedMatrix(t, wl, data; metadata=Dict{Symbol,Any}(:source => "x.img"))
+        @test source_file(kinetic_trace(m_src; wavelength=510.0)) == "x.img"
+    end
+
+    @testset "bin_matrix" begin
+        t = [0.0, 1.0, 2.0, 3.0]
+        wl = [500.0, 510.0, 520.0, 530.0, 540.0, 550.0]
+        data = reshape(collect(1.0:24.0), 4, 6)
+        m = TimeResolvedMatrix(t, wl, data)
+
+        b = bin_matrix(m; time=2, wavelength=3)
+        @test size(b.data) == (2, 2)
+        @test b.time == [0.5, 2.5]
+        @test b.wavelength == [510.0, 540.0]
+        # block (rows 1:2, cols 1:3) = mean of [1 5 9; 2 6 10] = 5.5
+        @test b.data[1, 1] == 5.5
+        # block (rows 3:4, cols 4:6) = mean of [15 19 23; 16 20 24] = 19.5
+        @test b.data[2, 2] == 19.5
+        @test b.metadata[:bin_time] == 2
+        @test b.metadata[:bin_wavelength] == 3
+
+        # partial final block: 4 rows binned by 3 → blocks 1:3 and 4:4
+        b2 = bin_matrix(m; time=3)
+        @test size(b2.data) == (2, 6)
+        @test b2.time == [1.0, 3.0]
+        @test b2.data[2, 1] == 4.0
+
+        # identity
+        b3 = bin_matrix(m)
+        @test b3.data == m.data
+        @test_throws ArgumentError bin_matrix(m; time=0)
+        @test_throws ArgumentError bin_matrix(m; wavelength=0)
+
+        # repeated binning accumulates the factor: bin by 2 twice → :bin_time == 4
+        @test bin_matrix(b; time=2).metadata[:bin_time] == 4
+
+        # both axes partial: 4 rows by 3 → 2 blocks; 6 cols by 4 → 2 blocks (last has 2)
+        b4 = bin_matrix(m; time=3, wavelength=4)
+        @test size(b4.data) == (2, 2)
+        @test b4.wavelength == [515.0, 545.0]
+        # block (rows 4:4, cols 5:6) = mean of [20, 24] = 22.0
+        @test b4.data[2, 2] == 22.0
+    end
+
+    @testset "Matrix cosmic ray detection" begin
+        t = collect(0.0:1.0:19.0)
+        wl = collect(500.0:5.0:595.0)
+        # smooth decay + small deterministic ripple (no RNG)
+        base = [100.0 * exp(-ti / 8.0) + 10.0 for ti in t, _ in wl]
+        ripple = [0.5 * sin(3.1 * i + 1.7 * j) for i in 1:20, j in 1:20]
+        clean = base .+ ripple
+        spikes = [CartesianIndex(3, 4), CartesianIndex(10, 15), CartesianIndex(18, 2)]
+        data = copy(clean)
+        for I in spikes
+            data[I] += 500.0
+        end
+        m = TimeResolvedMatrix(t, wl, data)
+
+        result = detect_cosmic_rays(m; threshold=8.0)
+        @test result isa CosmicRayMatrixResult
+        @test issubset(Set(spikes), Set(result.indices))
+        @test result.count <= 6          # no mass false positives
+        @test result.threshold == 8.0
+
+        cleaned = remove_cosmic_rays(m, result)
+        @test cleaned isa TimeResolvedMatrix
+        for I in spikes
+            @test abs(cleaned.data[I] - clean[I]) < 5.0
+        end
+        # untouched pixel unchanged
+        @test cleaned.data[1, 1] == data[1, 1] || CartesianIndex(1, 1) in result.indices
+        @test cleaned.metadata[:cosmic_rays_removed] == result.count
+
+        # constant image → no detections
+        flat = TimeResolvedMatrix(t, wl, fill(7.0, 20, 20))
+        @test detect_cosmic_rays(flat).count == 0
+
+        # sharp t0-like transient: a full time-row jumps; must not be flagged as CRs
+        t0data = copy(clean)
+        t0data[7, :] .+= 400.0
+        t0data[CartesianIndex(15, 9)] += 500.0
+        m_t0 = TimeResolvedMatrix(t, wl, t0data)
+        r_t0 = detect_cosmic_rays(m_t0; threshold=8.0)
+        @test CartesianIndex(15, 9) in r_t0.indices
+        @test all(I -> I[1] != 7, r_t0.indices)
+
+        # noisy but clean data: spikes found, false positives bounded
+        rng = Random.MersenneTwister(7)
+        noisy = base .+ 3.0 .* randn(rng, 20, 20)
+        spiked = copy(noisy)
+        for I in spikes
+            spiked[I] += 500.0
+        end
+        m_n = TimeResolvedMatrix(t, wl, spiked)
+        r_n = detect_cosmic_rays(m_n; threshold=8.0)
+        @test issubset(Set(spikes), Set(r_n.indices))
+        @test r_n.count <= 10
+
+        # Poisson shot noise on a bright band must not be over-flagged
+        rng2 = Random.MersenneTwister(21)
+        bright = [1000.0 * exp(-ti / 8.0) * exp(-((w - 550.0) / 20.0)^2) + 20.0 for ti in t, w in wl]
+        shot = bright .+ sqrt.(bright) .* randn(rng2, 20, 20)
+        r_shot = detect_cosmic_rays(TimeResolvedMatrix(t, wl, shot); threshold=8.0)
+        @test r_shot.count <= 2
+        # and a real CR on top of the bright band is still caught
+        shot_cr = copy(shot)
+        shot_cr[CartesianIndex(2, 11)] += 5000.0
+        r_shot_cr = detect_cosmic_rays(TimeResolvedMatrix(t, wl, shot_cr); threshold=8.0)
+        @test CartesianIndex(2, 11) in r_shot_cr.indices
+    end
+
+    @testset "Stretched exponential decay fit" begin
+        t = collect(0.0:0.1:50.0)
+        sig = 1.0 .* exp.(-(t ./ 5.0) .^ 0.7) .+ 0.05
+        trace = KineticTrace(t, sig; wavelength=550.0)
+
+        fit = fit_exp_decay(trace; model=:stretched)
+        @test fit isa StretchedDecayFit
+        @test isapprox(fit.tau, 5.0; rtol=0.05)
+        @test isapprox(fit.beta, 0.7; rtol=0.05)
+        @test isapprox(fit.offset, 0.05; atol=0.01)
+        @test fit.rsquared > 0.999
+
+        # ⟨τ⟩ = (τ/β)Γ(1/β) must equal ∫₀^∞ exp(-(t/τ)^β) dt (trapezoidal check)
+        ts = range(0.0, 400.0; length=400_000)
+        ys = exp.(-(ts ./ fit.tau) .^ fit.beta)
+        integral = sum((ys[1:end-1] .+ ys[2:end]) ./ 2 .* step(ts))
+        @test isapprox(mean_lifetime(fit), integral; rtol=1e-3)
+
+        @test occursin("β", sprint(show, MIME("text/plain"), fit))
+        @test occursin("Stretched", format_results(fit))
+
+        pred = predict(fit, t)
+        @test length(pred) == length(t)
+        @test maximum(abs.(pred .- sig)) < 1e-3
+
+        @test_throws ArgumentError fit_exp_decay(trace; model=:stretched, n_exp=2)
+        @test_throws ArgumentError fit_exp_decay(trace; model=:stretched, irf=true)
+        @test_throws ArgumentError fit_exp_decay(trace; model=:linear)
+
+        # noisy data (2% of amplitude)
+        rng = Random.MersenneTwister(11)
+        sig_n = sig .+ 0.02 .* randn(rng, length(t))
+        fit_n = fit_exp_decay(KineticTrace(t, sig_n; wavelength=550.0); model=:stretched)
+        @test isapprox(fit_n.tau, 5.0; rtol=0.15)
+        @test isapprox(fit_n.beta, 0.7; rtol=0.15)
+
+        # non-zero fit origin via t_range
+        sig_shift = [ti < 10.0 ? 1.05 : exp(-((ti - 10.0) / 5.0)^0.7) + 0.05 for ti in t]
+        fit_s = fit_exp_decay(KineticTrace(t, sig_shift; wavelength=550.0);
+                              model=:stretched, t_range=(10.0, 50.0))
+        @test fit_s.t0 == 10.0
+        @test isapprox(fit_s.tau, 5.0; rtol=0.05)
+        @test isapprox(fit_s.beta, 0.7; rtol=0.05)
+    end
+
+    @testset "fit_lifetime_spectrum" begin
+        t = collect(0.0:0.2:40.0)
+        wl = collect(500.0:2.0:600.0)
+        τλ(w) = w < 550 ? 2.0 : 8.0
+        data = [exp(-ti / τλ(w)) for ti in t, w in wl]
+        m = TimeResolvedMatrix(t, wl, data)
+
+        result = fit_lifetime_spectrum(m; nbins=10)
+        @test result isa LifetimeSpectrumResult
+        @test result.n_exp == 1
+        @test length(result.wavelength) == 10
+        @test size(result.taus) == (10, 1)
+        @test all(result.fitted)
+        @test isapprox(result.taus[1, 1], 2.0; rtol=0.1)
+        @test isapprox(result.taus[end, 1], 8.0; rtol=0.1)
+        @test all(result.rsquared[result.fitted] .> 0.99)
+        @test occursin("10/10", sprint(show, result))
+
+        # intensity floor skips weak bins
+        weak = copy(data)
+        weak[:, 1:10] .*= 1e-6
+        m2 = TimeResolvedMatrix(t, wl, weak)
+        r2 = fit_lifetime_spectrum(m2; nbins=10, min_signal=0.01)
+        @test !r2.fitted[1]
+        @test isnan(r2.taus[1, 1])
+        @test r2.fitted[end]
+
+        @test_throws ArgumentError fit_lifetime_spectrum(m; nbins=0)
+
+        # n_exp=2 path (MultiexpDecayFit branch)
+        data2 = [0.6 * exp(-ti / 3.0) + 0.4 * exp(-ti / 12.0) for ti in t, w in wl]
+        m3 = TimeResolvedMatrix(t, wl, data2)
+        r3 = fit_lifetime_spectrum(m3; nbins=4, n_exp=2)
+        @test r3.n_exp == 2
+        @test size(r3.taus) == (4, 2)
+        @test all(r3.fitted)
+        @test all(r3.rsquared[r3.fitted] .> 0.99)
+        @test_throws ArgumentError fit_lifetime_spectrum(m; n_exp=0)
     end
 
 end

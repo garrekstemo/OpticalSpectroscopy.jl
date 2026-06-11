@@ -46,8 +46,8 @@ abstract type AbstractSpectroscopyData end
 """
     xdata(d::AbstractSpectroscopyData) -> Vector{Float64}
 
-Return the primary x-axis data (e.g. time for [`TATrace`](@ref), wavenumber
-for [`TASpectrum`](@ref), wavelength for [`TAMatrix`](@ref)).
+Return the primary x-axis data (e.g. time for [`KineticTrace`](@ref), wavenumber
+for [`TASpectrum`](@ref), wavelength for [`TimeResolvedMatrix`](@ref)).
 Every concrete subtype implements this.
 """
 xdata(::AbstractSpectroscopyData) = error("xdata not implemented for this type")
@@ -56,15 +56,15 @@ xdata(::AbstractSpectroscopyData) = error("xdata not implemented for this type")
     ydata(d::AbstractSpectroscopyData) -> Vector{Float64}
 
 Return the signal data for 1D types, or the secondary axis for 2D types
-(e.g. the time axis of a [`TAMatrix`](@ref)).
+(e.g. the time axis of a [`TimeResolvedMatrix`](@ref)).
 """
 ydata(::AbstractSpectroscopyData) = error("ydata not implemented for this type")
 
 """
     zdata(d::AbstractSpectroscopyData) -> Union{Matrix{Float64}, Nothing}
 
-Return the signal matrix for 2D types (e.g. the ΔA matrix of a
-[`TAMatrix`](@ref), the intensity map of a [`PLMap`](@ref)).
+Return the signal matrix for 2D types (e.g. the signal matrix of a
+[`TimeResolvedMatrix`](@ref), the intensity map of a [`PLMap`](@ref)).
 Returns `nothing` for 1D data.
 """
 zdata(::AbstractSpectroscopyData) = nothing  # Default: not a matrix
@@ -93,7 +93,7 @@ zlabel(::AbstractSpectroscopyData) = "Signal"
 """
     is_matrix(d::AbstractSpectroscopyData) -> Bool
 
-Whether the data is 2D (`true` for [`TAMatrix`](@ref) and [`PLMap`](@ref);
+Whether the data is 2D (`true` for [`TimeResolvedMatrix`](@ref) and [`PLMap`](@ref);
 `false` for 1D types). When `true`, [`zdata`](@ref) returns a matrix.
 """
 is_matrix(::AbstractSpectroscopyData) = false  # Default: 1D data
@@ -107,10 +107,10 @@ source_file(::AbstractSpectroscopyData) = ""
 
 """
     npoints(d::AbstractSpectroscopyData) -> Int
-    npoints(d::TAMatrix) -> Tuple{Int,Int}
+    npoints(d::TimeResolvedMatrix) -> Tuple{Int,Int}
 
 Return the number of data points. For 1D data, returns an `Int`.
-For 2D data (`TAMatrix`), returns `(n_time, n_wavelength)`.
+For 2D data (`TimeResolvedMatrix`), returns `(n_time, n_wavelength)`.
 """
 npoints(d::AbstractSpectroscopyData) = length(xdata(d))
 
@@ -126,71 +126,76 @@ title(d::AbstractSpectroscopyData) = source_file(d)
 # =============================================================================
 
 """
-    TATrace <: AbstractSpectroscopyData
+    KineticTrace <: AbstractSpectroscopyData
 
-Single-wavelength transient absorption kinetic trace.
+Single-wavelength kinetic trace: signal versus time.
+
+Covers transient-absorption kinetics (ΔA) and time-resolved PL decays
+(counts). Signal semantics live in `metadata` (see `:signal_label`,
+`:time_unit`).
 
 # Fields
-- `time::Vector{Float64}`: Time axis (ps)
-- `signal::Vector{Float64}`: ΔA signal
-- `wavelength::Float64`: Probe wavelength, NaN if unknown
+- `time::Vector{Float64}`: Time axis
+- `signal::Vector{Float64}`: Signal at each time point
+- `wavelength::Float64`: Probe/emission wavelength, NaN if unknown
 - `metadata::Dict{Symbol,Any}`: Additional info
 """
-struct TATrace <: AbstractSpectroscopyData
+struct KineticTrace <: AbstractSpectroscopyData
     time::Vector{Float64}
     signal::Vector{Float64}
     wavelength::Float64
     metadata::Dict{Symbol,Any}
 
-    function TATrace(time, signal, wavelength, metadata)
+    function KineticTrace(time, signal, wavelength, metadata)
         length(time) == length(signal) || throw(ArgumentError(
-            "TATrace: time and signal must have equal length; " *
+            "KineticTrace: time and signal must have equal length; " *
             "got $(length(time)) time points and $(length(signal)) signal points"))
         new(time, signal, wavelength, metadata)
     end
 end
 
 # Constructor with default wavelength
-TATrace(time, signal; wavelength=NaN, metadata=Dict{Symbol,Any}()) =
-    TATrace(time, signal, wavelength, metadata)
+KineticTrace(time, signal; wavelength=NaN, metadata=Dict{Symbol,Any}()) =
+    KineticTrace(time, signal, wavelength, metadata)
 
 # AbstractSpectroscopyData interface
-xdata(t::TATrace) = t.time
-ydata(t::TATrace) = t.signal
-xlabel(::TATrace) = "Time (ps)"
-ylabel(::TATrace) = "ΔA"
-source_file(t::TATrace) = get(t.metadata, :filename, "")
+xdata(t::KineticTrace) = t.time
+ydata(t::KineticTrace) = t.signal
+xlabel(t::KineticTrace) = "Time ($(get(t.metadata, :time_unit, "ps")))"
+ylabel(t::KineticTrace) = String(get(t.metadata, :signal_label, "ΔA"))
+source_file(t::KineticTrace) = get(t.metadata, :filename, get(t.metadata, :source, ""))
 
 # Semantic accessors
 """
-    delay(t::TATrace) -> Vector{Float64}
+    delay(t::KineticTrace) -> Vector{Float64}
 
-Return the time delay axis (ps).
+Return the time axis.
 """
-delay(t::TATrace) = t.time
+delay(t::KineticTrace) = t.time
 
 """
-    signal(t::TATrace) -> Vector{Float64}
+    signal(t::KineticTrace) -> Vector{Float64}
 
-Return the ΔA signal.
+Return the signal values (ΔA, counts, or other units depending on data source).
 """
-signal(t::TATrace) = t.signal
+signal(t::KineticTrace) = t.signal
 
 # Pretty printing
-function Base.show(io::IO, t::TATrace)
+function Base.show(io::IO, t::KineticTrace)
     n = length(t.time)
-    t_range = "$(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) ps"
-    λ_str = isnan(t.wavelength) ? "unknown" : "$(t.wavelength)"
+    tu = get(t.metadata, :time_unit, "ps")
+    t_range = "$(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu"
     filename = get(t.metadata, :filename, "")
 
-    print(io, "TATrace: $n points, $t_range")
+    print(io, "KineticTrace: $n points, $t_range")
     !isempty(filename) && print(io, " ($(filename))")
 end
 
-function Base.show(io::IO, ::MIME"text/plain", t::TATrace)
-    println(io, "TATrace")
+function Base.show(io::IO, ::MIME"text/plain", t::KineticTrace)
+    tu = get(t.metadata, :time_unit, "ps")
+    println(io, "KineticTrace")
     println(io, "  Time points: $(length(t.time))")
-    println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) ps")
+    println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu")
     println(io, "  Wavelength:  $(isnan(t.wavelength) ? "unknown" : t.wavelength)")
     if haskey(t.metadata, :filename)
         println(io, "  File:        $(t.metadata[:filename])")
@@ -206,7 +211,7 @@ end
 Per-sweep multi-channel lock-in detector data. Each matrix is
 `n_points × n_sweeps`. `NaN` marks an unmeasured point (e.g. from an
 aborted partial sweep). This is the un-averaged counterpart to
-[`TATrace`](@ref) — sweep-resolved raw output before collapsing across
+[`KineticTrace`](@ref) — sweep-resolved raw output before collapsing across
 sweeps.
 
 # Fields
@@ -555,6 +560,96 @@ function Base.show(io::IO, ::MIME"text/plain", fit::MultiexpDecayFit)
 end
 
 # =============================================================================
+# Stretched-exponential (KWW) decay fit type
+# =============================================================================
+
+"""
+    StretchedDecayFit
+
+Result of stretched-exponential (Kohlrausch–Williams–Watts) decay fitting:
+
+`signal(t) = A·exp(-((t - t₀)/τ)^β) + offset`
+
+# Fields
+- `amplitude::Float64`
+- `tau::Float64`: Characteristic time constant
+- `beta::Float64`: Stretching exponent (0 < β ≤ 1)
+- `t0::Float64`: Fit-region time origin
+- `offset::Float64`
+- `signal_type::Symbol`: `:esa` (positive) or `:gsb` (negative)
+- `residuals::Vector{Float64}`
+- `rsquared::Float64`
+
+See [`mean_lifetime`](@ref) for ⟨τ⟩ = (τ/β)·Γ(1/β).
+"""
+struct StretchedDecayFit
+    amplitude::Float64
+    tau::Float64
+    beta::Float64
+    t0::Float64
+    offset::Float64
+    signal_type::Symbol
+    residuals::Vector{Float64}
+    rsquared::Float64
+end
+
+"""
+    mean_lifetime(fit::StretchedDecayFit) -> Float64
+
+Mean lifetime of a stretched-exponential decay: ⟨τ⟩ = (τ/β)·Γ(1/β).
+"""
+mean_lifetime(fit::StretchedDecayFit) = (fit.tau / fit.beta) * gamma(1 / fit.beta)
+
+function Base.show(io::IO, fit::StretchedDecayFit)
+    print(io, "StretchedDecayFit: τ = $(round(fit.tau, digits=2)), β = $(round(fit.beta, digits=3)), R² = $(round(fit.rsquared, digits=4))")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", fit::StretchedDecayFit)
+    println(io, "StretchedDecayFit ($(fit.signal_type == :esa ? "ESA (positive)" : "GSB (negative)"))")
+    println(io)
+    println(io, "  Parameter       Value")
+    println(io, "  ─────────────────────────────")
+    println(io, "  τ          $(lpad(round(fit.tau, digits=3), 10))")
+    println(io, "  β          $(lpad(round(fit.beta, digits=3), 10))")
+    println(io, "  ⟨τ⟩        $(lpad(round(mean_lifetime(fit), digits=3), 10))")
+    println(io, "  t₀         $(lpad(round(fit.t0, digits=3), 10))")
+    println(io, "  Amplitude  $(lpad(round(fit.amplitude, sigdigits=4), 10))")
+    println(io, "  Offset     $(lpad(round(fit.offset, sigdigits=4), 10))")
+    println(io)
+    print(io, "  R² = $(round(fit.rsquared, digits=5))")
+end
+
+# =============================================================================
+# LifetimeSpectrumResult: per-wavelength-bin decay fits
+# =============================================================================
+
+"""
+    LifetimeSpectrumResult
+
+Result of [`fit_lifetime_spectrum`](@ref): per-wavelength-bin decay fits.
+
+# Fields
+- `wavelength::Vector{Float64}`: Bin centers (mean wavelength per bin); NaN for empty bins
+- `taus::Matrix{Float64}`: Time constants, size (nbins, n_exp); NaN where skipped
+- `amplitudes::Matrix{Float64}`: Amplitudes, size (nbins, n_exp); NaN where skipped
+- `rsquared::Vector{Float64}`: R² per bin; NaN where skipped
+- `fitted::BitVector`: Whether each bin was fitted
+- `n_exp::Int`: Exponential components per fit
+"""
+struct LifetimeSpectrumResult
+    wavelength::Vector{Float64}
+    taus::Matrix{Float64}
+    amplitudes::Matrix{Float64}
+    rsquared::Vector{Float64}
+    fitted::BitVector
+    n_exp::Int
+end
+
+function Base.show(io::IO, r::LifetimeSpectrumResult)
+    print(io, "LifetimeSpectrumResult: $(count(r.fitted))/$(length(r.fitted)) bins fitted, n_exp = $(r.n_exp)")
+end
+
+# =============================================================================
 # Peak fitting result types
 # =============================================================================
 
@@ -767,110 +862,117 @@ function Base.show(io::IO, ::MIME"text/plain", r::FitMapResult)
 end
 
 # =============================================================================
-# TAMatrix: 2D Transient Absorption Data
+# TimeResolvedMatrix: 2D time-resolved spectroscopy data
 # =============================================================================
 
 """
-    TAMatrix <: AbstractSpectroscopyData
+    TimeResolvedMatrix <: AbstractSpectroscopyData
 
-Two-dimensional transient absorption data (time x wavelength).
+Two-dimensional time-resolved spectroscopy data (time × wavelength).
+
+Covers transient absorption (ΔA) and streak-camera PL (counts). Signal
+semantics live in `metadata` (see `:signal_label`, `:time_unit`).
 
 # Fields
-- `time::Vector{Float64}`: Time axis (ps)
+- `time::Vector{Float64}`: Time axis
 - `wavelength::Vector{Float64}`: Wavelength axis (nm) or wavenumber (cm⁻¹)
-- `data::Matrix{Float64}`: ΔA signal matrix, size (n_time, n_wavelength)
+- `data::Matrix{Float64}`: Signal matrix, size (n_time, n_wavelength)
 - `metadata::Dict{Symbol,Any}`: Additional info
 
 # Indexing
 ```julia
-matrix[λ=800]     # Extract TATrace at λ ≈ 800 nm
-matrix[t=1.0]     # Extract TASpectrum at t ≈ 1.0 ps
+matrix[λ=800]     # Extract KineticTrace at λ ≈ 800 nm
+matrix[t=1.0]     # Extract TASpectrum at t ≈ 1.0 ps (pump-probe convention, fixed units)
 ```
+
+`matrix[t=...]` returns a `TASpectrum` (pump-probe convention, wavenumber/wavelength
+axis with ΔA signal). For unit-aware time slices of generic time-resolved data,
+use [`spectral_slice`](@ref) instead.
 """
-struct TAMatrix <: AbstractSpectroscopyData
+struct TimeResolvedMatrix <: AbstractSpectroscopyData
     time::Vector{Float64}
     wavelength::Vector{Float64}
     data::Matrix{Float64}
     metadata::Dict{Symbol,Any}
 
-    function TAMatrix(time, wavelength, data, metadata)
+    function TimeResolvedMatrix(time, wavelength, data, metadata)
         expected = (length(time), length(wavelength))
         if size(data) != expected
             if size(data) == reverse(expected)
                 throw(ArgumentError(
-                    "TAMatrix: data is $(size(data)) but expected (n_time, n_wavelength) = " *
+                    "TimeResolvedMatrix: data is $(size(data)) but expected (n_time, n_wavelength) = " *
                     "$expected — data appears transposed; pass permutedims(data)"))
             else
                 throw(ArgumentError(
-                    "TAMatrix: data is $(size(data)) but expected (n_time, n_wavelength) = $expected"))
+                    "TimeResolvedMatrix: data is $(size(data)) but expected (n_time, n_wavelength) = $expected"))
             end
         end
         new(time, wavelength, data, metadata)
     end
 end
 
-TAMatrix(time, wavelength, data; metadata=Dict{Symbol,Any}()) =
-    TAMatrix(time, wavelength, data, metadata)
+TimeResolvedMatrix(time, wavelength, data; metadata=Dict{Symbol,Any}()) =
+    TimeResolvedMatrix(time, wavelength, data, metadata)
 
-xdata(m::TAMatrix) = m.wavelength
-ydata(m::TAMatrix) = m.time
-zdata(m::TAMatrix) = m.data
-is_matrix(::TAMatrix) = true
-source_file(m::TAMatrix) = get(m.metadata, :source, "")
-npoints(m::TAMatrix) = size(m.data)
+xdata(m::TimeResolvedMatrix) = m.wavelength
+ydata(m::TimeResolvedMatrix) = m.time
+zdata(m::TimeResolvedMatrix) = m.data
+is_matrix(::TimeResolvedMatrix) = true
+source_file(m::TimeResolvedMatrix) = get(m.metadata, :source, "")
+npoints(m::TimeResolvedMatrix) = size(m.data)
 
 # Semantic accessors
 """
-    wavelength(m::TAMatrix) -> Vector{Float64}
+    wavelength(m::TimeResolvedMatrix) -> Vector{Float64}
 
-Return the wavelength axis (nm).
+Return the wavelength axis (nm) or wavenumber axis (cm⁻¹).
 """
-wavelength(m::TAMatrix) = m.wavelength
-
-"""
-    delay(m::TAMatrix) -> Vector{Float64}
-
-Return the time delay axis (ps).
-"""
-delay(m::TAMatrix) = m.time
+wavelength(m::TimeResolvedMatrix) = m.wavelength
 
 """
-    signal(m::TAMatrix) -> Matrix{Float64}
+    delay(m::TimeResolvedMatrix) -> Vector{Float64}
 
-Return the ΔA signal matrix (n_time × n_wavelength).
+Return the time axis.
 """
-signal(m::TAMatrix) = m.data
+delay(m::TimeResolvedMatrix) = m.time
 
-function xlabel(m::TAMatrix)
-    minval, maxval = extrema(m.wavelength)
-    if minval > 1200 && maxval < 5000
-        return "Wavenumber (cm⁻¹)"
-    else
-        return "Wavelength (nm)"
-    end
-end
-ylabel(::TAMatrix) = "Time (ps)"
-zlabel(::TAMatrix) = "ΔA"
+"""
+    signal(m::TimeResolvedMatrix) -> Matrix{Float64}
 
-function _detect_wavelength_unit(m::TAMatrix)
-    minval, maxval = extrema(m.wavelength)
+Return the signal matrix (n_time × n_wavelength).
+"""
+signal(m::TimeResolvedMatrix) = m.data
+
+xlabel(m::TimeResolvedMatrix) =
+    _detect_spectral_unit(m.wavelength) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
+ylabel(m::TimeResolvedMatrix) = "Time ($(get(m.metadata, :time_unit, "ps")))"
+zlabel(m::TimeResolvedMatrix) = String(get(m.metadata, :signal_label, "ΔA"))
+
+# Spectral axis unit heuristic shared by matrix and gated-spectrum types.
+function _detect_spectral_unit(wavelengths::AbstractVector{<:Real})
+    isempty(wavelengths) && return "nm"
+    minval, maxval = extrema(wavelengths)
     (minval > 1200 && maxval < 5000) ? "cm⁻¹" : "nm"
 end
 
-function Base.show(io::IO, m::TAMatrix)
+_detect_wavelength_unit(m::TimeResolvedMatrix) = _detect_spectral_unit(m.wavelength)
+
+function Base.show(io::IO, m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
-    t_range = "$(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) ps"
+    tu = get(m.metadata, :time_unit, "ps")
+    t_range = "$(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu"
     wl_range = "$(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1))"
     wl_unit = _detect_wavelength_unit(m)
-    print(io, "TAMatrix: $n_time × $n_wl ($t_range, $wl_range $wl_unit)")
+    print(io, "TimeResolvedMatrix: $n_time × $n_wl ($t_range, $wl_range $wl_unit)")
 end
 
-function Base.show(io::IO, ::MIME"text/plain", m::TAMatrix)
+function Base.show(io::IO, ::MIME"text/plain", m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
+    tu = get(m.metadata, :time_unit, "ps")
     wl_unit = _detect_wavelength_unit(m)
 
-    println(io, "TAMatrix")
-    println(io, "  Time points:   $n_time ($(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) ps)")
+    println(io, "TimeResolvedMatrix")
+    println(io, "  Time points:   $n_time ($(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu)")
     println(io, "  Wavelengths:   $n_wl ($(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1)) $wl_unit)")
     println(io, "  Data range:    $(round(minimum(m.data), sigdigits=3)) to $(round(maximum(m.data), sigdigits=3))")
     if haskey(m.metadata, :source)
@@ -879,7 +981,7 @@ function Base.show(io::IO, ::MIME"text/plain", m::TAMatrix)
 end
 
 # =============================================================================
-# TAMatrix indexing
+# TimeResolvedMatrix indexing
 # =============================================================================
 
 function _find_nearest_idx(arr::AbstractVector, target::Real)
@@ -887,20 +989,19 @@ function _find_nearest_idx(arr::AbstractVector, target::Real)
     return idx
 end
 
-function Base.getindex(m::TAMatrix; λ=nothing, t=nothing)
+function Base.getindex(m::TimeResolvedMatrix; λ=nothing, t=nothing)
     if !isnothing(λ) && isnothing(t)
         idx = _find_nearest_idx(m.wavelength, λ)
         actual_λ = m.wavelength[idx]
         signal = m.data[:, idx]
 
-        metadata = Dict{Symbol,Any}(
-            :extracted_from => get(m.metadata, :source, "TAMatrix"),
-            :requested_wavelength => λ,
-            :actual_wavelength => actual_λ,
-            :wavelength_index => idx
-        )
+        metadata = copy(m.metadata)
+        metadata[:extracted_from] = get(m.metadata, :source, "TimeResolvedMatrix")
+        metadata[:requested_wavelength] = λ
+        metadata[:actual_wavelength] = actual_λ
+        metadata[:wavelength_index] = idx
 
-        return TATrace(m.time, signal, actual_λ, metadata)
+        return KineticTrace(m.time, signal, actual_λ, metadata)
 
     elseif !isnothing(t) && isnothing(λ)
         idx = _find_nearest_idx(m.time, t)
@@ -908,7 +1009,7 @@ function Base.getindex(m::TAMatrix; λ=nothing, t=nothing)
         signal = m.data[idx, :]
 
         metadata = Dict{Symbol,Any}(
-            :extracted_from => get(m.metadata, :source, "TAMatrix"),
+            :extracted_from => get(m.metadata, :source, "TimeResolvedMatrix"),
             :requested_time => t,
             :actual_time => actual_t,
             :time_index => idx
@@ -920,6 +1021,89 @@ function Base.getindex(m::TAMatrix; λ=nothing, t=nothing)
         error("Cannot specify both λ and t. Use matrix[λ=...] or matrix[t=...]")
     else
         error("Must specify either λ or t for indexing. Use matrix[λ=...] or matrix[t=...]")
+    end
+end
+
+# =============================================================================
+# GatedSpectrum
+# =============================================================================
+
+"""
+    GatedSpectrum <: AbstractSpectroscopyData
+
+Spectrum extracted from a [`TimeResolvedMatrix`](@ref) over a time window.
+
+Produced by `spectral_slice` (gated mean) and `integrate_time`
+(sum over time). `t_range` records the time window `(t_lo, t_hi)` of the
+extraction; `(NaN, NaN)` if unknown.
+
+# Fields
+- `wavelength::Vector{Float64}`: Spectral axis
+- `signal::Vector{Float64}`: Signal at each wavelength
+- `t_range::Tuple{Float64,Float64}`: Time window of extraction
+- `metadata::Dict{Symbol,Any}`: Additional info; display reads `:signal_label`, `:time_unit`, and `:source`
+"""
+struct GatedSpectrum <: AbstractSpectroscopyData
+    wavelength::Vector{Float64}
+    signal::Vector{Float64}
+    t_range::Tuple{Float64,Float64}
+    metadata::Dict{Symbol,Any}
+
+    function GatedSpectrum(wavelength, signal, t_range, metadata)
+        length(wavelength) == length(signal) || throw(ArgumentError(
+            "GatedSpectrum: wavelength and signal must have equal length; " *
+            "got $(length(wavelength)) and $(length(signal))"))
+        new(wavelength, signal, t_range, metadata)
+    end
+end
+
+GatedSpectrum(wavelength, signal; t_range=(NaN, NaN), metadata=Dict{Symbol,Any}()) =
+    GatedSpectrum(wavelength, signal, t_range, metadata)
+
+xdata(g::GatedSpectrum) = g.wavelength
+ydata(g::GatedSpectrum) = g.signal
+xlabel(g::GatedSpectrum) =
+    _detect_spectral_unit(g.wavelength) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
+ylabel(g::GatedSpectrum) = String(get(g.metadata, :signal_label, "ΔA"))
+source_file(g::GatedSpectrum) = get(g.metadata, :source, "")
+
+"""
+    wavelength(g::GatedSpectrum) -> Vector{Float64}
+
+Return the spectral axis.
+"""
+wavelength(g::GatedSpectrum) = g.wavelength
+
+"""
+    signal(g::GatedSpectrum) -> Vector{Float64}
+
+Return the signal.
+"""
+signal(g::GatedSpectrum) = g.signal
+
+function Base.show(io::IO, g::GatedSpectrum)
+    n = length(g.wavelength)
+    tu = get(g.metadata, :time_unit, "ps")
+    range = isempty(g.wavelength) ? "" :
+        ", $(round(minimum(g.wavelength), digits=1)) to $(round(maximum(g.wavelength), digits=1)) $(_detect_spectral_unit(g.wavelength))"
+    gate = any(isnan, g.t_range) ? "" :
+        ", t = $(round(g.t_range[1], digits=2)) to $(round(g.t_range[2], digits=2)) $tu"
+    print(io, "GatedSpectrum: $n points$range$gate")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", g::GatedSpectrum)
+    tu = get(g.metadata, :time_unit, "ps")
+    println(io, "GatedSpectrum")
+    println(io, "  Points:      $(length(g.wavelength))")
+    if !isempty(g.wavelength)
+        u = _detect_spectral_unit(g.wavelength)
+        println(io, "  Range:       $(round(minimum(g.wavelength), digits=1)) to $(round(maximum(g.wavelength), digits=1)) $u")
+    end
+    if !any(isnan, g.t_range)
+        println(io, "  Time gate:   $(round(g.t_range[1], digits=2)) to $(round(g.t_range[2], digits=2)) $tu")
+    end
+    if haskey(g.metadata, :source)
+        println(io, "  Source:      $(g.metadata[:source])")
     end
 end
 
@@ -942,14 +1126,14 @@ global analysis with shared τ values and per-trace amplitudes.
 - `amplitudes::Matrix{Float64}`: Per-trace amplitudes (n_traces × n_exp)
 - `offsets::Vector{Float64}`: Per-trace offsets
 - `labels::Vector{String}`: Trace labels
-- `wavelengths::Union{Nothing, Vector{Float64}}`: Wavelength axis (from TAMatrix input)
+- `wavelengths::Union{Nothing, Vector{Float64}}`: Wavelength axis (from TimeResolvedMatrix input)
 - `rsquared::Float64`: Global R²
 - `rsquared_individual::Vector{Float64}`: Per-trace R²
 - `residuals::Vector{Vector{Float64}}`: Per-trace residuals
 
 # Derived properties
 - `n_exp(fit)`: Number of exponential components
-- `das(fit)`: Decay-associated spectra (requires TAMatrix input)
+- `das(fit)`: Decay-associated spectra (requires TimeResolvedMatrix input)
 """
 struct GlobalFitResult
     taus::Vector{Float64}
@@ -972,10 +1156,10 @@ n_exp(fit::GlobalFitResult) = length(fit.taus)
 Return the decay-associated spectra (DAS) as an `n_exp × n_wavelengths` matrix.
 Each row is the amplitude spectrum for one time constant.
 
-Requires that the fit was performed on a `TAMatrix` (wavelengths must be available).
+Requires that the fit was performed on a `TimeResolvedMatrix` (wavelengths must be available).
 """
 function das(fit::GlobalFitResult)
-    isnothing(fit.wavelengths) && error("DAS requires wavelength axis (use TAMatrix input)")
+    isnothing(fit.wavelengths) && error("DAS requires wavelength axis (use TimeResolvedMatrix input)")
     return permutedims(fit.amplitudes)  # n_exp × n_wavelengths
 end
 
@@ -1179,6 +1363,23 @@ function format_results(r::PeakFitResult)
     println(io)
     println(io, "**Model:** $(r.model) | **R²:** $(round(r.r_squared, digits=5)) | **Region:** $(round(Int, r.region[1]))–$(round(Int, r.region[2]))")
 
+    return String(take!(io))
+end
+
+function format_results(r::StretchedDecayFit)
+    io = IOBuffer()
+    println(io, "## Stretched Exponential Decay Fit")
+    println(io)
+    println(io, "| Parameter | Value |")
+    println(io, "|-----------|-------|")
+    println(io, "| τ | $(round(r.tau, digits=3)) |")
+    println(io, "| β | $(round(r.beta, digits=3)) |")
+    println(io, "| ⟨τ⟩ | $(round(mean_lifetime(r), digits=3)) |")
+    println(io, "| t₀ | $(round(r.t0, digits=3)) |")
+    println(io, "| Amplitude | $(round(r.amplitude, sigdigits=4)) |")
+    println(io, "| Offset | $(round(r.offset, sigdigits=4)) |")
+    println(io)
+    println(io, "**R²:** $(round(r.rsquared, digits=5))")
     return String(take!(io))
 end
 

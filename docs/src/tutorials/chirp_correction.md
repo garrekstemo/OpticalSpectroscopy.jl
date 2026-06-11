@@ -177,7 +177,7 @@ GVD doesn't just shift time zero --- it also temporally broadens the probe pulse
 ```julia
 using OpticalSpectroscopy
 
-# Assume `matrix` is a TAMatrix loaded from your data
+# Assume `matrix` is a TimeResolvedMatrix loaded from your data
 # Step 1: Background subtraction
 matrix_bg = subtract_background(matrix)
 

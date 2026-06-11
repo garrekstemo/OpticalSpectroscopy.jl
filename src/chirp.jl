@@ -62,12 +62,12 @@ end
 # =============================================================================
 
 """
-    subtract_background(matrix::TAMatrix; t_range=nothing) -> TAMatrix
+    subtract_background(matrix::TimeResolvedMatrix; t_range=nothing) -> TimeResolvedMatrix
 
 Subtract pre-pump background from a TA matrix by averaging and removing
 the signal in the baseline region (before pump arrival).
 """
-function subtract_background(matrix::TAMatrix; t_range::Union{Tuple,Nothing}=nothing)
+function subtract_background(matrix::TimeResolvedMatrix; t_range::Union{Tuple,Nothing}=nothing)
     time = matrix.time
     data = matrix.data
 
@@ -94,7 +94,7 @@ function subtract_background(matrix::TAMatrix; t_range::Union{Tuple,Nothing}=not
     metadata[:background_subtracted] = true
     metadata[:baseline_t_range] = t_range
 
-    return TAMatrix(copy(time), copy(matrix.wavelength), corrected, metadata)
+    return TimeResolvedMatrix(copy(time), copy(matrix.wavelength), corrected, metadata)
 end
 
 """
@@ -122,12 +122,12 @@ end
 # =============================================================================
 
 """
-    detect_chirp(matrix::TAMatrix; kwargs...) -> ChirpCalibration
+    detect_chirp(matrix::TimeResolvedMatrix; kwargs...) -> ChirpCalibration
 
 Detect chirp (GVD) in a broadband TA matrix via cross-correlation (`:xcorr`)
 or threshold crossing (`:threshold`). Returns a `ChirpCalibration` with polynomial fit.
 """
-function detect_chirp(matrix::TAMatrix;
+function detect_chirp(matrix::TimeResolvedMatrix;
     method::Symbol=:xcorr,
     order::Int=3,
     smooth_window::Int=15,
@@ -453,12 +453,12 @@ end
 # =============================================================================
 
 """
-    correct_chirp(matrix::TAMatrix, cal::ChirpCalibration) -> TAMatrix
+    correct_chirp(matrix::TimeResolvedMatrix, cal::ChirpCalibration) -> TimeResolvedMatrix
 
 Apply chirp correction via cubic spline interpolation, shifting each wavelength
 column by `t_shift(λ)` from the calibration polynomial.
 """
-function correct_chirp(matrix::TAMatrix, cal::ChirpCalibration)
+function correct_chirp(matrix::TimeResolvedMatrix, cal::ChirpCalibration)
     time = matrix.time
     wavelength = matrix.wavelength
     data = matrix.data
@@ -488,7 +488,7 @@ function correct_chirp(matrix::TAMatrix, cal::ChirpCalibration)
     metadata[:chirp_corrected] = true
     metadata[:chirp_calibration] = cal
 
-    return TAMatrix(copy(time), copy(wavelength), corrected, metadata)
+    return TimeResolvedMatrix(copy(time), copy(wavelength), corrected, metadata)
 end
 
 # =============================================================================
@@ -545,7 +545,7 @@ end
 # =============================================================================
 
 """
-    svd_filter(matrix::TAMatrix; n_components::Int=5) -> TAMatrix
+    svd_filter(matrix::TimeResolvedMatrix; n_components::Int=5) -> TimeResolvedMatrix
 
 Denoise a TA matrix by keeping only the first `n_components` singular value
 components. Higher-order components (dominated by noise) are discarded.
@@ -554,14 +554,14 @@ This is a standard preprocessing step for broadband TA data. Typical usage:
 denoise first, then subtract background, detect chirp, and correct chirp.
 
 # Arguments
-- `matrix::TAMatrix`: Input time × wavelength ΔA matrix
+- `matrix::TimeResolvedMatrix`: Input time × wavelength ΔA matrix
 
 # Keywords
 - `n_components::Int=5`: Number of singular value components to retain.
   Use [`singular_values`](@ref) to inspect the spectrum and choose.
 
 # Returns
-A new `TAMatrix` with filtered data. Metadata includes `:svd_filtered => true`
+A new `TimeResolvedMatrix` with filtered data. Metadata includes `:svd_filtered => true`
 and `:svd_n_components => n_components`.
 
 # Examples
@@ -570,7 +570,7 @@ sv = singular_values(matrix)  # inspect singular value spectrum
 filtered = svd_filter(matrix; n_components=3)
 ```
 """
-function svd_filter(matrix::TAMatrix; n_components::Int=5)
+function svd_filter(matrix::TimeResolvedMatrix; n_components::Int=5)
     n_time, n_wl = size(matrix.data)
     max_components = min(n_time, n_wl)
     n_components < 1 && throw(ArgumentError("n_components must be >= 1"))
@@ -586,7 +586,7 @@ function svd_filter(matrix::TAMatrix; n_components::Int=5)
     metadata[:svd_filtered] = true
     metadata[:svd_n_components] = n_components
 
-    return TAMatrix(copy(matrix.time), copy(matrix.wavelength), filtered_data, metadata)
+    return TimeResolvedMatrix(copy(matrix.time), copy(matrix.wavelength), filtered_data, metadata)
 end
 
 """
@@ -620,7 +620,7 @@ function svd_filter(x::AbstractVector, y::AbstractVector, data::AbstractMatrix;
 end
 
 """
-    singular_values(matrix::TAMatrix) -> Vector{Float64}
+    singular_values(matrix::TimeResolvedMatrix) -> Vector{Float64}
 
 Return the singular values of the TA data matrix. Inspect these to choose
 `n_components` for [`svd_filter`](@ref) — look for a gap between signal
@@ -633,7 +633,7 @@ sv = singular_values(matrix)
 filtered = svd_filter(matrix; n_components=3)
 ```
 """
-function singular_values(matrix::TAMatrix)
+function singular_values(matrix::TimeResolvedMatrix)
     return svd(matrix.data).S
 end
 

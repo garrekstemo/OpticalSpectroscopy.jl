@@ -21,9 +21,11 @@ using SavitzkyGolay: savitzky_golay as _sg_filter
 using Interpolations
 using JSON
 import PhysicalConstants.CODATA2022: h, c_0, ħ
+using SpecialFunctions: gamma
 
 # Source files (order matters: types before functions that use them)
 include("types.jl")
+include("timeresolved.jl")
 include("units.jl")
 include("spectroscopy.jl")
 include("baseline.jl")
@@ -42,13 +44,21 @@ include("cosmic_rays.jl")
 export AbstractSpectroscopyData
 export xdata, ydata, zdata, xlabel, ylabel, zlabel, is_matrix
 export source_file, npoints, title
-export TATrace, TASpectrum, TAMatrix, SweepData
+export KineticTrace, TASpectrum, TimeResolvedMatrix, GatedSpectrum, SweepData
 export delay, signal, wavenumber, wavelength
+
+# Time-resolved slice extraction
+export kinetic_trace, spectral_slice, integrate_time, bin_matrix
 
 # PL/Raman spatial mapping
 export PLMap, extract_spectrum, peak_centers, intensity
 export integrated_intensity, intensity_mask, fit_map, FitMapResult
-export CosmicRayResult, CosmicRayMapResult, detect_cosmic_rays, remove_cosmic_rays
+
+# Cosmic ray detection/removal (1D, PLMap, TimeResolvedMatrix)
+# Deliberate asymmetry: CosmicRayMatrixResult carries `threshold` for
+# cache-invalidation in downstream apps; the 1D/PLMap results do not.
+export CosmicRayResult, CosmicRayMapResult, CosmicRayMatrixResult
+export detect_cosmic_rays, remove_cosmic_rays
 
 # PL Map decomposition (PCA, NMF)
 export DecompositionResult, pca_map, nmf_map
@@ -56,17 +66,19 @@ export DecompositionResult, pca_map, nmf_map
 # ==========================================================================
 # Exports — Fit Results
 # ==========================================================================
-export ExpDecayFit, MultiexpDecayFit, GlobalFitResult
+export ExpDecayFit, MultiexpDecayFit, GlobalFitResult, StretchedDecayFit
+export LifetimeSpectrumResult
 export MultiPeakFitResult, PeakFitResult
 export TAPeak, TASpectrumFit, anharmonicity, das
 
 # ==========================================================================
 # Exports — Fitting
 # ==========================================================================
-export fit_exp_decay, fit_global
+export fit_exp_decay, fit_global, fit_lifetime_spectrum
 export fit_peaks, predict_peak, predict_baseline
 export fit_ta_spectrum
 export report, format_results, polynomial
+export mean_lifetime
 
 # ==========================================================================
 # Exports — Chirp correction
@@ -126,6 +138,7 @@ export coef, residuals, predict, fitted, stderror, confint, rss, mse, nobs, isco
 # ==========================================================================
 export gaussian, lorentzian, pseudo_voigt, single_exponential
 export fano, voigt, log_normal
+export stretched_exponential
 
 # ==========================================================================
 # Plotting — methods live in OpticalSpectroscopyMakieExt (loaded with Makie)

@@ -8,18 +8,35 @@ This page collects exported names that aren't covered by the grouped reference p
 OpticalSpectroscopy.OpticalSpectroscopy
 ```
 
-## Transient Absorption Types
+## Time-Resolved Data Types
 
 ```@docs
 AbstractSpectroscopyData
-TATrace
+KineticTrace
 TASpectrum
-TAMatrix
+TimeResolvedMatrix
+GatedSpectrum
 SweepData
 TASpectrumFit
 TAPeak
 fit_ta_spectrum
 anharmonicity
+```
+
+## Time-Resolved Analysis
+
+Slice extraction, binning, cosmic ray removal, and lifetime fitting for streak-camera and broadband TA data.
+
+```@docs
+kinetic_trace
+spectral_slice
+integrate_time
+bin_matrix
+fit_lifetime_spectrum
+mean_lifetime
+StretchedDecayFit
+LifetimeSpectrumResult
+CosmicRayMatrixResult
 ```
 
 ## Data Interface
