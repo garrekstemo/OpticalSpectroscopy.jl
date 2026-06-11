@@ -64,6 +64,7 @@ decay_time_to_linewidth(1.0u"ps")
 | **Transforms** | Kramers-Kronig, Kubelka-Munk, Tauc plot, SNV, Urbach tail |
 | **Unit conversions** | Wavenumber, wavelength, energy, linewidth interconversion |
 | **PL/Raman mapping** | Spatial maps, peak fitting, cosmic ray detection and removal |
+| **Time-resolved PL (streak camera)** | Slice extraction, binning, cosmic ray removal, stretched-exponential and lifetime-vs-wavelength fitting |
 
 ## Data Types
 

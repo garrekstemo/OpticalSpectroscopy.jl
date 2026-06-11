@@ -603,6 +603,10 @@ always bright.
   detect more spikes but may flag real features.
 - `row_fraction_limit`: rows with more than this fraction of flagged channels
   are treated as real temporal structure, not cosmic rays (default 0.25).
+  Run detection on unbinned data; on very narrow matrices (few wavelength columns)
+  raise `row_fraction_limit`, since wide cosmic-ray streaks or hot rows spanning
+  more than that fraction of a row are treated as temporal structure and left
+  unflagged.
 
 # Returns
 A [`CosmicRayMatrixResult`](@ref) with the flagged pixel indices.
