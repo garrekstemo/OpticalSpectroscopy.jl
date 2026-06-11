@@ -52,7 +52,12 @@ export kinetic_trace, spectral_slice, integrate_time, bin_matrix
 # PL/Raman spatial mapping
 export PLMap, extract_spectrum, peak_centers, intensity
 export integrated_intensity, intensity_mask, fit_map, FitMapResult
-export CosmicRayResult, CosmicRayMapResult, detect_cosmic_rays, remove_cosmic_rays
+
+# Cosmic ray detection/removal (1D, PLMap, TimeResolvedMatrix)
+# Deliberate asymmetry: CosmicRayMatrixResult carries `threshold` for
+# cache-invalidation in downstream apps; the 1D/PLMap results do not.
+export CosmicRayResult, CosmicRayMapResult, CosmicRayMatrixResult
+export detect_cosmic_rays, remove_cosmic_rays
 
 # PL Map decomposition (PCA, NMF)
 export DecompositionResult, pca_map, nmf_map

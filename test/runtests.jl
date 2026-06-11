@@ -3004,4 +3004,59 @@ Random.seed!(42)
         @test b4.data[2, 2] == 22.0
     end
 
+    @testset "Matrix cosmic ray detection" begin
+        t = collect(0.0:1.0:19.0)
+        wl = collect(500.0:5.0:595.0)
+        # smooth decay + small deterministic ripple (no RNG)
+        base = [100.0 * exp(-ti / 8.0) + 10.0 for ti in t, _ in wl]
+        ripple = [0.5 * sin(3.1 * i + 1.7 * j) for i in 1:20, j in 1:20]
+        clean = base .+ ripple
+        spikes = [CartesianIndex(3, 4), CartesianIndex(10, 15), CartesianIndex(18, 2)]
+        data = copy(clean)
+        for I in spikes
+            data[I] += 500.0
+        end
+        m = TimeResolvedMatrix(t, wl, data)
+
+        result = detect_cosmic_rays(m; threshold=8.0)
+        @test result isa CosmicRayMatrixResult
+        @test issubset(Set(spikes), Set(result.indices))
+        @test result.count <= 6          # no mass false positives
+        @test result.threshold == 8.0
+
+        cleaned = remove_cosmic_rays(m, result)
+        @test cleaned isa TimeResolvedMatrix
+        for I in spikes
+            @test abs(cleaned.data[I] - clean[I]) < 5.0
+        end
+        # untouched pixel unchanged
+        @test cleaned.data[1, 1] == data[1, 1] || CartesianIndex(1, 1) in result.indices
+        @test cleaned.metadata[:cosmic_rays_removed] == result.count
+
+        # constant image → no detections
+        flat = TimeResolvedMatrix(t, wl, fill(7.0, 20, 20))
+        @test detect_cosmic_rays(flat).count == 0
+
+        # sharp t0-like transient: a full time-row jumps; must not be flagged as CRs
+        t0data = copy(clean)
+        t0data[7, :] .+= 400.0
+        t0data[CartesianIndex(15, 9)] += 500.0
+        m_t0 = TimeResolvedMatrix(t, wl, t0data)
+        r_t0 = detect_cosmic_rays(m_t0; threshold=8.0)
+        @test CartesianIndex(15, 9) in r_t0.indices
+        @test all(I -> I[1] != 7, r_t0.indices)
+
+        # noisy but clean data: spikes found, false positives bounded
+        rng = Random.MersenneTwister(7)
+        noisy = base .+ 3.0 .* randn(rng, 20, 20)
+        spiked = copy(noisy)
+        for I in spikes
+            spiked[I] += 500.0
+        end
+        m_n = TimeResolvedMatrix(t, wl, spiked)
+        r_n = detect_cosmic_rays(m_n; threshold=8.0)
+        @test issubset(Set(spikes), Set(r_n.indices))
+        @test r_n.count <= 10
+    end
+
 end

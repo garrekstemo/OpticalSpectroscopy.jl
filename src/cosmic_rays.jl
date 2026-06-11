@@ -538,3 +538,140 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
 
     return PLMap(new_intensity, cleaned, m.x, m.y, m.pixel, m.metadata)
 end
+
+# =============================================================================
+# Helper: 3×3 median filter (used by TimeResolvedMatrix detection)
+# =============================================================================
+
+# 3×3 median filter with edge replication.
+function _median_filter3(data::AbstractMatrix)
+    nrow, ncol = size(data)
+    out = similar(data, Float64)
+    buf = Vector{Float64}(undef, 9)
+    for j in 1:ncol, i in 1:nrow
+        k = 0
+        for dj in -1:1, di in -1:1
+            k += 1
+            buf[k] = data[clamp(i + di, 1, nrow), clamp(j + dj, 1, ncol)]
+        end
+        # buf is always fully overwritten with 9 values, so the median is the
+        # 5th element after sorting — avoids median()'s per-call allocation.
+        sort!(buf)
+        out[i, j] = buf[5]
+    end
+    return out
+end
+
+# =============================================================================
+# TimeResolvedMatrix detection and removal
+# =============================================================================
+
+"""
+    CosmicRayMatrixResult
+
+Result of cosmic ray detection on a [`TimeResolvedMatrix`](@ref).
+
+# Fields
+- `indices::Vector{CartesianIndex{2}}` — flagged (time, wavelength) pixels
+- `count::Int` — number of flagged pixels
+- `threshold::Float64` — detection threshold used
+"""
+struct CosmicRayMatrixResult
+    indices::Vector{CartesianIndex{2}}
+    count::Int
+    threshold::Float64
+end
+
+"""
+    detect_cosmic_rays(m::TimeResolvedMatrix; threshold=5.0, row_fraction_limit=0.25) -> CosmicRayMatrixResult
+
+Detect cosmic ray hits in a 2D time × wavelength image.
+
+Computes the residual of the image over its 3×3 median filter (which smooths
+isolated spikes while preserving gradual spatial/temporal structure). The noise
+scale is estimated from the **positive residuals only**: their median `med₊` and
+MAD `MAD₊`. A pixel is flagged when
+
+    resid > med₊ + threshold × MAD₊ / 0.6745
+
+Only positive outliers are flagged — cosmic rays deposit charge, so they are
+always bright.
+
+# Arguments
+- `m`: TimeResolvedMatrix with 2D data array `(n_time, n_wavelength)`
+- `threshold`: outlier cutoff in MAD-scaled units (default 5.0). Lower values
+  detect more spikes but may flag real features.
+- `row_fraction_limit`: rows with more than this fraction of flagged channels
+  are treated as real temporal structure, not cosmic rays (default 0.25).
+
+# Returns
+A [`CosmicRayMatrixResult`](@ref) with the flagged pixel indices.
+
+# Limitations
+Returns zero detections when positive residuals are absent or have zero spread
+(e.g. a near-flat background with fewer than ~3 distinct positive residual
+values) — there is no noise floor to measure against in that regime.
+"""
+function detect_cosmic_rays(m::TimeResolvedMatrix; threshold::Real=5.0,
+                            row_fraction_limit::Real=0.25)
+    resid = m.data .- _median_filter3(m.data)
+    # Noise floor from POSITIVE residuals only: MAD over all residuals collapses
+    # to 0 on smooth data (the median filter reproduces the background exactly,
+    # so >50% of residuals are identically zero), which would disable detection
+    # entirely. Cosmic rays are always positive, so positive residuals carry all
+    # the signal of interest.
+    positive_resid = filter(>(0.0), vec(resid))
+    if isempty(positive_resid)
+        return CosmicRayMatrixResult(CartesianIndex{2}[], 0, float(threshold))
+    end
+    med = median(positive_resid)
+    mad_val = median(abs.(positive_resid .- med))
+    if mad_val < eps(Float64)
+        return CosmicRayMatrixResult(CartesianIndex{2}[], 0, float(threshold))
+    end
+    # Flag pixels where the residual is a large positive outlier
+    flagged = findall(@. resid > med + Float64(threshold) * (mad_val / 0.6745))
+    # Sharp temporal features (e.g. an IRF-limited rise at time zero) flag
+    # entire time rows across wavelength; cosmic rays hit isolated pixels.
+    # Drop rows where more than `row_fraction_limit` of channels are flagged.
+    if !isempty(flagged)
+        ncol = size(m.data, 2)
+        row_counts = Dict{Int,Int}()
+        for I in flagged
+            row_counts[I[1]] = get(row_counts, I[1], 0) + 1
+        end
+        bad_rows = Set(r for (r, c) in row_counts if c > row_fraction_limit * ncol)
+        isempty(bad_rows) || (flagged = [I for I in flagged if I[1] ∉ bad_rows])
+    end
+    return CosmicRayMatrixResult(flagged, length(flagged), float(threshold))
+end
+
+"""
+    remove_cosmic_rays(m::TimeResolvedMatrix, result::CosmicRayMatrixResult) -> TimeResolvedMatrix
+
+Replace flagged pixels with the median of their non-flagged 3×3 neighbors.
+If all 8 neighbors of a flagged pixel are themselves flagged, falls back to
+the global median of the image. Records `:cosmic_rays_removed` in metadata.
+
+Returns a new TimeResolvedMatrix with cleaned data; does not mutate the input.
+"""
+function remove_cosmic_rays(m::TimeResolvedMatrix, result::CosmicRayMatrixResult)
+    data = copy(m.data)
+    flagged = Set(result.indices)
+    nrow, ncol = size(data)
+    for I in result.indices
+        i, j = Tuple(I)
+        neighbors = Float64[]
+        for dj in -1:1, di in -1:1
+            (di == 0 && dj == 0) && continue
+            ni, nj = i + di, j + dj
+            (1 <= ni <= nrow && 1 <= nj <= ncol) || continue
+            CartesianIndex(ni, nj) in flagged && continue
+            push!(neighbors, m.data[ni, nj])
+        end
+        data[I] = isempty(neighbors) ? median(m.data) : median(neighbors)
+    end
+    md = copy(m.metadata)
+    md[:cosmic_rays_removed] = result.count
+    return TimeResolvedMatrix(m.time, m.wavelength, data, md)
+end
