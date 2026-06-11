@@ -67,13 +67,14 @@ export DecompositionResult, pca_map, nmf_map
 # Exports — Fit Results
 # ==========================================================================
 export ExpDecayFit, MultiexpDecayFit, GlobalFitResult, StretchedDecayFit
+export LifetimeSpectrumResult
 export MultiPeakFitResult, PeakFitResult
 export TAPeak, TASpectrumFit, anharmonicity, das
 
 # ==========================================================================
 # Exports — Fitting
 # ==========================================================================
-export fit_exp_decay, fit_global
+export fit_exp_decay, fit_global, fit_lifetime_spectrum
 export fit_peaks, predict_peak, predict_baseline
 export fit_ta_spectrum
 export report, format_results, polynomial

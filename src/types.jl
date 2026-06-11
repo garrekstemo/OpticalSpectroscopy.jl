@@ -620,6 +620,36 @@ function Base.show(io::IO, ::MIME"text/plain", fit::StretchedDecayFit)
 end
 
 # =============================================================================
+# LifetimeSpectrumResult: per-wavelength-bin decay fits
+# =============================================================================
+
+"""
+    LifetimeSpectrumResult
+
+Result of [`fit_lifetime_spectrum`](@ref): per-wavelength-bin decay fits.
+
+# Fields
+- `wavelength::Vector{Float64}`: Bin centers (mean wavelength per bin); NaN for empty bins
+- `taus::Matrix{Float64}`: Time constants, size (nbins, n_exp); NaN where skipped
+- `amplitudes::Matrix{Float64}`: Amplitudes, size (nbins, n_exp); NaN where skipped
+- `rsquared::Vector{Float64}`: R² per bin; NaN where skipped
+- `fitted::BitVector`: Whether each bin was fitted
+- `n_exp::Int`: Exponential components per fit
+"""
+struct LifetimeSpectrumResult
+    wavelength::Vector{Float64}
+    taus::Matrix{Float64}
+    amplitudes::Matrix{Float64}
+    rsquared::Vector{Float64}
+    fitted::BitVector
+    n_exp::Int
+end
+
+function Base.show(io::IO, r::LifetimeSpectrumResult)
+    print(io, "LifetimeSpectrumResult: $(count(r.fitted))/$(length(r.fitted)) bins fitted, n_exp = $(r.n_exp)")
+end
+
+# =============================================================================
 # Peak fitting result types
 # =============================================================================
 

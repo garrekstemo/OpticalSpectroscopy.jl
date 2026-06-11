@@ -3100,4 +3100,44 @@ Random.seed!(42)
         @test isapprox(fit_s.beta, 0.7; rtol=0.05)
     end
 
+    @testset "fit_lifetime_spectrum" begin
+        t = collect(0.0:0.2:40.0)
+        wl = collect(500.0:2.0:600.0)
+        τλ(w) = w < 550 ? 2.0 : 8.0
+        data = [exp(-ti / τλ(w)) for ti in t, w in wl]
+        m = TimeResolvedMatrix(t, wl, data)
+
+        result = fit_lifetime_spectrum(m; nbins=10)
+        @test result isa LifetimeSpectrumResult
+        @test result.n_exp == 1
+        @test length(result.wavelength) == 10
+        @test size(result.taus) == (10, 1)
+        @test all(result.fitted)
+        @test isapprox(result.taus[1, 1], 2.0; rtol=0.1)
+        @test isapprox(result.taus[end, 1], 8.0; rtol=0.1)
+        @test all(result.rsquared[result.fitted] .> 0.99)
+        @test occursin("10/10", sprint(show, result))
+
+        # intensity floor skips weak bins
+        weak = copy(data)
+        weak[:, 1:10] .*= 1e-6
+        m2 = TimeResolvedMatrix(t, wl, weak)
+        r2 = fit_lifetime_spectrum(m2; nbins=10, min_signal=0.01)
+        @test !r2.fitted[1]
+        @test isnan(r2.taus[1, 1])
+        @test r2.fitted[end]
+
+        @test_throws ArgumentError fit_lifetime_spectrum(m; nbins=0)
+
+        # n_exp=2 path (MultiexpDecayFit branch)
+        data2 = [0.6 * exp(-ti / 3.0) + 0.4 * exp(-ti / 12.0) for ti in t, w in wl]
+        m3 = TimeResolvedMatrix(t, wl, data2)
+        r3 = fit_lifetime_spectrum(m3; nbins=4, n_exp=2)
+        @test r3.n_exp == 2
+        @test size(r3.taus) == (4, 2)
+        @test all(r3.fitted)
+        @test all(r3.rsquared[r3.fitted] .> 0.99)
+        @test_throws ArgumentError fit_lifetime_spectrum(m; n_exp=0)
+    end
+
 end

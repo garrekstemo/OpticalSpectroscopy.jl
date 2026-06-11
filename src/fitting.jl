@@ -603,6 +603,74 @@ function fit_global(matrix::TimeResolvedMatrix; n_exp::Int=1, irf_width::Float64
 end
 
 # =============================================================================
+# fit_lifetime_spectrum: per-wavelength-bin decay fitting
+# =============================================================================
+
+"""
+    fit_lifetime_spectrum(m::TimeResolvedMatrix; n_exp=1, nbins=32,
+                          t_range=nothing, min_signal=0.0) -> LifetimeSpectrumResult
+
+Fit an exponential decay in each of `nbins` equal-width wavelength bins.
+
+Each bin's columns are averaged into a kinetic trace and fitted with
+[`fit_exp_decay`](@ref). Bins with no wavelength points, peak |signal| below
+`min_signal`, or a failed fit are skipped (NaN entries, `fitted[i] == false`).
+
+# Arguments
+- `m`: time × wavelength matrix
+- `n_exp`: exponential components per bin fit (default 1)
+- `nbins`: number of equal-width wavelength bins (default 32)
+- `t_range`: optional `(t_lo, t_hi)` fit window passed to `fit_exp_decay`
+- `min_signal`: skip bins whose peak |signal| is below this (default 0.0 = fit all)
+"""
+function fit_lifetime_spectrum(m::TimeResolvedMatrix; n_exp::Int=1, nbins::Int=32,
+                               t_range=nothing, min_signal::Real=0.0)
+    nbins >= 1 || throw(ArgumentError("nbins must be >= 1, got $nbins"))
+    n_exp >= 1 || throw(ArgumentError("n_exp must be >= 1, got $n_exp"))
+    wl_lo, wl_hi = extrema(m.wavelength)
+    edges = range(wl_lo, wl_hi; length=nbins + 1)
+
+    centers = fill(NaN, nbins)
+    taus = fill(NaN, nbins, n_exp)
+    amplitudes = fill(NaN, nbins, n_exp)
+    rsq = fill(NaN, nbins)
+    fitted = falses(nbins)
+
+    for i in 1:nbins
+        cols = i == nbins ?
+            findall(w -> edges[i] <= w <= edges[i+1], m.wavelength) :
+            findall(w -> edges[i] <= w < edges[i+1], m.wavelength)
+        isempty(cols) && continue
+        centers[i] = mean(view(m.wavelength, cols))
+        sig = vec(mean(view(m.data, :, cols), dims=2))
+        maximum(abs, sig) < min_signal && continue
+
+        trace = KineticTrace(copy(m.time), sig;
+                             wavelength=centers[i], metadata=copy(m.metadata))
+        fit = try
+            fit_exp_decay(trace; n_exp=n_exp, t_range=t_range)
+        catch e
+            e isa InterruptException && rethrow()
+            continue
+        end
+
+        if fit isa ExpDecayFit
+            taus[i, 1] = fit.tau
+            amplitudes[i, 1] = fit.amplitude
+        elseif fit isa MultiexpDecayFit
+            taus[i, :] .= fit.taus
+            amplitudes[i, :] .= fit.amplitudes
+        else
+            continue
+        end
+        rsq[i] = fit.rsquared
+        fitted[i] = true
+    end
+
+    return LifetimeSpectrumResult(centers, taus, amplitudes, rsq, fitted, n_exp)
+end
+
+# =============================================================================
 # Predict functions for fit results
 # =============================================================================
 
