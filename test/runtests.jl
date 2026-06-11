@@ -2967,4 +2967,41 @@ Random.seed!(42)
         @test_throws ArgumentError integrate_time(m; t_range=(10.0, 20.0))
     end
 
+    @testset "bin_matrix" begin
+        t = [0.0, 1.0, 2.0, 3.0]
+        wl = [500.0, 510.0, 520.0, 530.0, 540.0, 550.0]
+        data = reshape(collect(1.0:24.0), 4, 6)
+        m = TimeResolvedMatrix(t, wl, data)
+
+        b = bin_matrix(m; time=2, wavelength=3)
+        @test size(b.data) == (2, 2)
+        @test b.time == [0.5, 2.5]
+        @test b.wavelength == [510.0, 540.0]
+        # block (rows 1:2, cols 1:3) = mean of [1 5 9; 2 6 10] = 5.5
+        @test b.data[1, 1] == 5.5
+        # block (rows 3:4, cols 4:6) = mean of [15 19 23; 16 20 24] = 19.5
+        @test b.data[2, 2] == 19.5
+        @test b.metadata[:bin_time] == 2
+        @test b.metadata[:bin_wavelength] == 3
+
+        # partial final block: 4 rows binned by 3 → blocks 1:3 and 4:4
+        b2 = bin_matrix(m; time=3)
+        @test size(b2.data) == (2, 6)
+        @test b2.time == [1.0, 3.0]
+        @test b2.data[2, 1] == 4.0
+
+        # identity
+        b3 = bin_matrix(m)
+        @test b3.data == m.data
+        @test_throws ArgumentError bin_matrix(m; time=0)
+        @test_throws ArgumentError bin_matrix(m; wavelength=0)
+
+        # both axes partial: 4 rows by 3 → 2 blocks; 6 cols by 4 → 2 blocks (last has 2)
+        b4 = bin_matrix(m; time=3, wavelength=4)
+        @test size(b4.data) == (2, 2)
+        @test b4.wavelength == [515.0, 545.0]
+        # block (rows 4:4, cols 5:6) = mean of [20, 24] = 22.0
+        @test b4.data[2, 2] == 22.0
+    end
+
 end

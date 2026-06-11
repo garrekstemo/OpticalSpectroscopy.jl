@@ -47,7 +47,7 @@ export KineticTrace, TASpectrum, TimeResolvedMatrix, GatedSpectrum, SweepData
 export delay, signal, wavenumber, wavelength
 
 # Time-resolved slice extraction
-export kinetic_trace, spectral_slice, integrate_time
+export kinetic_trace, spectral_slice, integrate_time, bin_matrix
 
 # PL/Raman spatial mapping
 export PLMap, extract_spectrum, peak_centers, intensity
