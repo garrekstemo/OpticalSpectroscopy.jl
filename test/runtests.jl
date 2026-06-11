@@ -2883,4 +2883,31 @@ Random.seed!(42)
         @test xlabel(m[λ=505.0]) == "Time (ns)"
     end
 
+    @testset "GatedSpectrum" begin
+        g = GatedSpectrum([500.0, 510.0, 520.0], [1.0, 2.0, 1.5];
+                          t_range=(0.0, 5.0),
+                          metadata=Dict{Symbol,Any}(:time_unit => "ns"))
+        @test g isa AbstractSpectroscopyData
+        @test xdata(g) == [500.0, 510.0, 520.0]
+        @test ydata(g) == [1.0, 2.0, 1.5]
+        @test wavelength(g) == g.wavelength
+        @test signal(g) == g.signal
+        @test g.t_range == (0.0, 5.0)
+        @test xlabel(g) == "Wavelength (nm)"
+        @test occursin("0.0 to 5.0 ns", sprint(show, g))
+        @test_throws ArgumentError GatedSpectrum([1.0, 2.0], [1.0])
+        g2 = GatedSpectrum([500.0], [1.0])
+        @test all(isnan, g2.t_range)
+        @test ylabel(g) == "ΔA"
+        g_pl = GatedSpectrum([500.0], [1.0]; metadata=Dict{Symbol,Any}(:signal_label => "Counts"))
+        @test ylabel(g_pl) == "Counts"
+        g_wn = GatedSpectrum([1500.0, 1600.0], [1.0, 2.0])
+        @test xlabel(g_wn) == "Wavenumber (cm⁻¹)"
+        @test occursin("Time gate", sprint(show, MIME("text/plain"), g))
+        g_empty = GatedSpectrum(Float64[], Float64[])
+        @test xlabel(g_empty) == "Wavelength (nm)"
+        @test occursin("0 points", sprint(show, g_empty))
+        @test sprint(show, MIME("text/plain"), g_empty) isa String
+    end
+
 end

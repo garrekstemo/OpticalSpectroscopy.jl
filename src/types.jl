@@ -849,21 +849,19 @@ Return the signal matrix (n_time × n_wavelength).
 """
 signal(m::TimeResolvedMatrix) = m.data
 
-function xlabel(m::TimeResolvedMatrix)
-    minval, maxval = extrema(m.wavelength)
-    if minval > 1200 && maxval < 5000
-        return "Wavenumber (cm⁻¹)"
-    else
-        return "Wavelength (nm)"
-    end
-end
+xlabel(m::TimeResolvedMatrix) =
+    _detect_spectral_unit(m.wavelength) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
 ylabel(m::TimeResolvedMatrix) = "Time ($(get(m.metadata, :time_unit, "ps")))"
 zlabel(m::TimeResolvedMatrix) = String(get(m.metadata, :signal_label, "ΔA"))
 
-function _detect_wavelength_unit(m::TimeResolvedMatrix)
-    minval, maxval = extrema(m.wavelength)
+# Spectral axis unit heuristic shared by matrix and gated-spectrum types.
+function _detect_spectral_unit(wavelengths::AbstractVector{<:Real})
+    isempty(wavelengths) && return "nm"
+    minval, maxval = extrema(wavelengths)
     (minval > 1200 && maxval < 5000) ? "cm⁻¹" : "nm"
 end
+
+_detect_wavelength_unit(m::TimeResolvedMatrix) = _detect_spectral_unit(m.wavelength)
 
 function Base.show(io::IO, m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
@@ -935,6 +933,84 @@ function Base.getindex(m::TimeResolvedMatrix; λ=nothing, t=nothing)
         error("Cannot specify both λ and t. Use matrix[λ=...] or matrix[t=...]")
     else
         error("Must specify either λ or t for indexing. Use matrix[λ=...] or matrix[t=...]")
+    end
+end
+
+# =============================================================================
+# GatedSpectrum
+# =============================================================================
+
+"""
+    GatedSpectrum <: AbstractSpectroscopyData
+
+Spectrum extracted from a [`TimeResolvedMatrix`](@ref) over a time window.
+
+Produced by `spectral_slice` (gated mean) and `integrate_time`
+(sum over time). `t_range` records the time window `(t_lo, t_hi)` of the
+extraction; `(NaN, NaN)` if unknown.
+
+# Fields
+- `wavelength::Vector{Float64}`: Spectral axis
+- `signal::Vector{Float64}`: Signal at each wavelength
+- `t_range::Tuple{Float64,Float64}`: Time window of extraction
+- `metadata::Dict{Symbol,Any}`: Additional info
+"""
+struct GatedSpectrum <: AbstractSpectroscopyData
+    wavelength::Vector{Float64}
+    signal::Vector{Float64}
+    t_range::Tuple{Float64,Float64}
+    metadata::Dict{Symbol,Any}
+
+    function GatedSpectrum(wavelength, signal, t_range, metadata)
+        length(wavelength) == length(signal) || throw(ArgumentError(
+            "GatedSpectrum: wavelength and signal must have equal length; " *
+            "got $(length(wavelength)) and $(length(signal))"))
+        new(wavelength, signal, t_range, metadata)
+    end
+end
+
+GatedSpectrum(wavelength, signal; t_range=(NaN, NaN), metadata=Dict{Symbol,Any}()) =
+    GatedSpectrum(wavelength, signal, t_range, metadata)
+
+xdata(g::GatedSpectrum) = g.wavelength
+ydata(g::GatedSpectrum) = g.signal
+xlabel(g::GatedSpectrum) =
+    _detect_spectral_unit(g.wavelength) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
+ylabel(g::GatedSpectrum) = String(get(g.metadata, :signal_label, "ΔA"))
+source_file(g::GatedSpectrum) = get(g.metadata, :source, "")
+
+"""
+    wavelength(g::GatedSpectrum) -> Vector{Float64}
+
+Return the spectral axis.
+"""
+wavelength(g::GatedSpectrum) = g.wavelength
+
+"""
+    signal(g::GatedSpectrum) -> Vector{Float64}
+
+Return the signal.
+"""
+signal(g::GatedSpectrum) = g.signal
+
+function Base.show(io::IO, g::GatedSpectrum)
+    n = length(g.wavelength)
+    tu = get(g.metadata, :time_unit, "ps")
+    gate = any(isnan, g.t_range) ? "" :
+        ", t = $(round(g.t_range[1], digits=2)) to $(round(g.t_range[2], digits=2)) $tu"
+    print(io, "GatedSpectrum: $n points$gate")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", g::GatedSpectrum)
+    tu = get(g.metadata, :time_unit, "ps")
+    println(io, "GatedSpectrum")
+    println(io, "  Points:      $(length(g.wavelength))")
+    if !isempty(g.wavelength)
+        u = _detect_spectral_unit(g.wavelength)
+        println(io, "  Range:       $(round(minimum(g.wavelength), digits=1)) to $(round(maximum(g.wavelength), digits=1)) $u")
+    end
+    if !any(isnan, g.t_range)
+        println(io, "  Time gate:   $(round(g.t_range[1], digits=2)) to $(round(g.t_range[2], digits=2)) $tu")
     end
 end
 
