@@ -161,8 +161,8 @@ KineticTrace(time, signal; wavelength=NaN, metadata=Dict{Symbol,Any}()) =
 # AbstractSpectroscopyData interface
 xdata(t::KineticTrace) = t.time
 ydata(t::KineticTrace) = t.signal
-xlabel(::KineticTrace) = "Time (ps)"
-ylabel(::KineticTrace) = "ΔA"
+xlabel(t::KineticTrace) = "Time ($(get(t.metadata, :time_unit, "ps")))"
+ylabel(t::KineticTrace) = String(get(t.metadata, :signal_label, "ΔA"))
 source_file(t::KineticTrace) = get(t.metadata, :filename, "")
 
 # Semantic accessors
@@ -183,8 +183,8 @@ signal(t::KineticTrace) = t.signal
 # Pretty printing
 function Base.show(io::IO, t::KineticTrace)
     n = length(t.time)
-    t_range = "$(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) ps"
-    λ_str = isnan(t.wavelength) ? "unknown" : "$(t.wavelength)"
+    tu = get(t.metadata, :time_unit, "ps")
+    t_range = "$(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu"
     filename = get(t.metadata, :filename, "")
 
     print(io, "KineticTrace: $n points, $t_range")
@@ -192,9 +192,10 @@ function Base.show(io::IO, t::KineticTrace)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", t::KineticTrace)
+    tu = get(t.metadata, :time_unit, "ps")
     println(io, "KineticTrace")
     println(io, "  Time points: $(length(t.time))")
-    println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) ps")
+    println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu")
     println(io, "  Wavelength:  $(isnan(t.wavelength) ? "unknown" : t.wavelength)")
     if haskey(t.metadata, :filename)
         println(io, "  File:        $(t.metadata[:filename])")
@@ -856,8 +857,8 @@ function xlabel(m::TimeResolvedMatrix)
         return "Wavelength (nm)"
     end
 end
-ylabel(::TimeResolvedMatrix) = "Time (ps)"
-zlabel(::TimeResolvedMatrix) = "ΔA"
+ylabel(m::TimeResolvedMatrix) = "Time ($(get(m.metadata, :time_unit, "ps")))"
+zlabel(m::TimeResolvedMatrix) = String(get(m.metadata, :signal_label, "ΔA"))
 
 function _detect_wavelength_unit(m::TimeResolvedMatrix)
     minval, maxval = extrema(m.wavelength)
@@ -866,7 +867,8 @@ end
 
 function Base.show(io::IO, m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
-    t_range = "$(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) ps"
+    tu = get(m.metadata, :time_unit, "ps")
+    t_range = "$(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu"
     wl_range = "$(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1))"
     wl_unit = _detect_wavelength_unit(m)
     print(io, "TimeResolvedMatrix: $n_time × $n_wl ($t_range, $wl_range $wl_unit)")
@@ -874,10 +876,11 @@ end
 
 function Base.show(io::IO, ::MIME"text/plain", m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
+    tu = get(m.metadata, :time_unit, "ps")
     wl_unit = _detect_wavelength_unit(m)
 
     println(io, "TimeResolvedMatrix")
-    println(io, "  Time points:   $n_time ($(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) ps)")
+    println(io, "  Time points:   $n_time ($(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu)")
     println(io, "  Wavelengths:   $n_wl ($(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1)) $wl_unit)")
     println(io, "  Data range:    $(round(minimum(m.data), sigdigits=3)) to $(round(maximum(m.data), sigdigits=3))")
     if haskey(m.metadata, :source)
@@ -906,6 +909,11 @@ function Base.getindex(m::TimeResolvedMatrix; λ=nothing, t=nothing)
             :actual_wavelength => actual_λ,
             :wavelength_index => idx
         )
+
+        # Propagate display semantics from the parent matrix
+        for key in (:time_unit, :signal_label)
+            haskey(m.metadata, key) && (metadata[key] = m.metadata[key])
+        end
 
         return KineticTrace(m.time, signal, actual_λ, metadata)
 

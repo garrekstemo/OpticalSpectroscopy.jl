@@ -2863,4 +2863,24 @@ Random.seed!(42)
         @test fig3 isa Makie.Figure
     end
 
+    @testset "Metadata-driven labels" begin
+        md = Dict{Symbol,Any}(:time_unit => "ns", :signal_label => "Counts")
+        tr = KineticTrace([0.0, 1.0], [1.0, 0.5]; metadata=md)
+        @test xlabel(tr) == "Time (ns)"
+        @test ylabel(tr) == "Counts"
+        @test occursin("ns", sprint(show, tr))
+
+        tr_default = KineticTrace([0.0, 1.0], [1.0, 0.5])
+        @test xlabel(tr_default) == "Time (ps)"
+        @test ylabel(tr_default) == "ΔA"
+
+        m = TimeResolvedMatrix([0.0, 1.0], [500.0, 510.0], [1.0 2.0; 3.0 4.0]; metadata=md)
+        @test ylabel(m) == "Time (ns)"
+        @test zlabel(m) == "Counts"
+        @test occursin("ns", sprint(show, m))
+        @test occursin("ns", sprint(show, MIME("text/plain"), tr))
+        @test occursin("ns", sprint(show, MIME("text/plain"), m))
+        @test xlabel(m[λ=505.0]) == "Time (ns)"
+    end
+
 end
