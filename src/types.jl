@@ -560,6 +560,66 @@ function Base.show(io::IO, ::MIME"text/plain", fit::MultiexpDecayFit)
 end
 
 # =============================================================================
+# Stretched-exponential (KWW) decay fit type
+# =============================================================================
+
+"""
+    StretchedDecayFit
+
+Result of stretched-exponential (Kohlrausch–Williams–Watts) decay fitting:
+
+`signal(t) = A·exp(-((t - t₀)/τ)^β) + offset`
+
+# Fields
+- `amplitude::Float64`
+- `tau::Float64`: Characteristic time constant
+- `beta::Float64`: Stretching exponent (0 < β ≤ 1)
+- `t0::Float64`: Fit-region time origin
+- `offset::Float64`
+- `signal_type::Symbol`: `:esa` (positive) or `:gsb` (negative)
+- `residuals::Vector{Float64}`
+- `rsquared::Float64`
+
+See [`mean_lifetime`](@ref) for ⟨τ⟩ = (τ/β)·Γ(1/β).
+"""
+struct StretchedDecayFit
+    amplitude::Float64
+    tau::Float64
+    beta::Float64
+    t0::Float64
+    offset::Float64
+    signal_type::Symbol
+    residuals::Vector{Float64}
+    rsquared::Float64
+end
+
+"""
+    mean_lifetime(fit::StretchedDecayFit) -> Float64
+
+Mean lifetime of a stretched-exponential decay: ⟨τ⟩ = (τ/β)·Γ(1/β).
+"""
+mean_lifetime(fit::StretchedDecayFit) = (fit.tau / fit.beta) * gamma(1 / fit.beta)
+
+function Base.show(io::IO, fit::StretchedDecayFit)
+    print(io, "StretchedDecayFit: τ = $(round(fit.tau, digits=2)), β = $(round(fit.beta, digits=3)), R² = $(round(fit.rsquared, digits=4))")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", fit::StretchedDecayFit)
+    println(io, "StretchedDecayFit ($(fit.signal_type == :esa ? "ESA (positive)" : "GSB (negative)"))")
+    println(io)
+    println(io, "  Parameter       Value")
+    println(io, "  ─────────────────────────────")
+    println(io, "  τ          $(lpad(round(fit.tau, digits=3), 10))")
+    println(io, "  β          $(lpad(round(fit.beta, digits=3), 10))")
+    println(io, "  ⟨τ⟩        $(lpad(round(mean_lifetime(fit), digits=3), 10))")
+    println(io, "  t₀         $(lpad(round(fit.t0, digits=3), 10))")
+    println(io, "  Amplitude  $(lpad(round(fit.amplitude, sigdigits=4), 10))")
+    println(io, "  Offset     $(lpad(round(fit.offset, sigdigits=4), 10))")
+    println(io)
+    print(io, "  R² = $(round(fit.rsquared, digits=5))")
+end
+
+# =============================================================================
 # Peak fitting result types
 # =============================================================================
 
@@ -1269,6 +1329,23 @@ function format_results(r::PeakFitResult)
     println(io)
     println(io, "**Model:** $(r.model) | **R²:** $(round(r.r_squared, digits=5)) | **Region:** $(round(Int, r.region[1]))–$(round(Int, r.region[2]))")
 
+    return String(take!(io))
+end
+
+function format_results(r::StretchedDecayFit)
+    io = IOBuffer()
+    println(io, "## Stretched Exponential Decay Fit")
+    println(io)
+    println(io, "| Parameter | Value |")
+    println(io, "|-----------|-------|")
+    println(io, "| τ | $(round(r.tau, digits=3)) |")
+    println(io, "| β | $(round(r.beta, digits=3)) |")
+    println(io, "| ⟨τ⟩ | $(round(mean_lifetime(r), digits=3)) |")
+    println(io, "| t₀ | $(round(r.t0, digits=3)) |")
+    println(io, "| Amplitude | $(round(r.amplitude, sigdigits=4)) |")
+    println(io, "| Offset | $(round(r.offset, sigdigits=4)) |")
+    println(io)
+    println(io, "**R²:** $(round(r.rsquared, digits=5))")
     return String(take!(io))
 end
 

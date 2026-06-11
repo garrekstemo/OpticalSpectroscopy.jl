@@ -3059,4 +3059,45 @@ Random.seed!(42)
         @test r_n.count <= 10
     end
 
+    @testset "Stretched exponential decay fit" begin
+        t = collect(0.0:0.1:50.0)
+        sig = 1.0 .* exp.(-(t ./ 5.0) .^ 0.7) .+ 0.05
+        trace = KineticTrace(t, sig; wavelength=550.0)
+
+        fit = fit_exp_decay(trace; model=:stretched)
+        @test fit isa StretchedDecayFit
+        @test isapprox(fit.tau, 5.0; rtol=0.05)
+        @test isapprox(fit.beta, 0.7; rtol=0.05)
+        @test isapprox(fit.offset, 0.05; atol=0.01)
+        @test fit.rsquared > 0.999
+
+        # ⟨τ⟩ = (τ/β)Γ(1/β) must equal ∫₀^∞ exp(-(t/τ)^β) dt (trapezoidal check)
+        ts = range(0.0, 400.0; length=400_000)
+        ys = exp.(-(ts ./ fit.tau) .^ fit.beta)
+        integral = sum((ys[1:end-1] .+ ys[2:end]) ./ 2 .* step(ts))
+        @test isapprox(mean_lifetime(fit), integral; rtol=1e-3)
+
+        @test occursin("β", sprint(show, MIME("text/plain"), fit))
+        @test occursin("Stretched", format_results(fit))
+
+        @test_throws ArgumentError fit_exp_decay(trace; model=:stretched, n_exp=2)
+        @test_throws ArgumentError fit_exp_decay(trace; model=:stretched, irf=true)
+        @test_throws ArgumentError fit_exp_decay(trace; model=:linear)
+
+        # noisy data (2% of amplitude)
+        rng = Random.MersenneTwister(11)
+        sig_n = sig .+ 0.02 .* randn(rng, length(t))
+        fit_n = fit_exp_decay(KineticTrace(t, sig_n; wavelength=550.0); model=:stretched)
+        @test isapprox(fit_n.tau, 5.0; rtol=0.15)
+        @test isapprox(fit_n.beta, 0.7; rtol=0.15)
+
+        # non-zero fit origin via t_range
+        sig_shift = [ti < 10.0 ? 1.05 : exp(-((ti - 10.0) / 5.0)^0.7) + 0.05 for ti in t]
+        fit_s = fit_exp_decay(KineticTrace(t, sig_shift; wavelength=550.0);
+                              model=:stretched, t_range=(10.0, 50.0))
+        @test fit_s.t0 == 10.0
+        @test isapprox(fit_s.tau, 5.0; rtol=0.05)
+        @test isapprox(fit_s.beta, 0.7; rtol=0.05)
+    end
+
 end

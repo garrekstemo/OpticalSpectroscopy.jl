@@ -129,7 +129,7 @@ end
 # =============================================================================
 
 """
-    fit_exp_decay(trace::KineticTrace; n_exp=1, irf=false, irf_width=0.15, t_start=0.0, t_range=nothing)
+    fit_exp_decay(trace::KineticTrace; n_exp=1, irf=false, irf_width=0.15, t_start=0.0, t_range=nothing, model=:exponential)
 
 Fit an exponential decay model to a `KineticTrace`.
 
@@ -140,14 +140,25 @@ Fit an exponential decay model to a `KineticTrace`.
 - `irf_width`: Initial guess for IRF σ in ps (default 0.15)
 - `t_start`: Start time for fitting when irf=false (default 0.0)
 - `t_range`: Optional (t_min, t_max) to restrict fit region
+- `model`: `:exponential` (default) or `:stretched` — Kohlrausch–Williams–Watts
 
 # Returns
 - `n_exp=1`: `ExpDecayFit`
 - `n_exp>1`: `MultiexpDecayFit`
+- `model=:stretched`: `StretchedDecayFit`
 """
 function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_width::Float64=0.15,
-                       t_start::Float64=0.0, t_range=nothing)
+                       t_start::Float64=0.0, t_range=nothing, model::Symbol=:exponential)
     @assert n_exp >= 1 "n_exp must be at least 1"
+
+    if model === :stretched
+        n_exp == 1 || throw(ArgumentError(
+            "model=:stretched fits a single stretched component; n_exp must be 1"))
+        irf && throw(ArgumentError("model=:stretched does not support IRF convolution"))
+        return _fit_stretched_decay(trace; t_start=t_start, t_range=t_range)
+    end
+    model === :exponential || throw(ArgumentError(
+        "unknown model: $model (expected :exponential or :stretched)"))
 
     if n_exp > 1
         return _fit_multiexp_decay(trace; n_exp=n_exp, irf=irf, irf_width=irf_width,
@@ -180,12 +191,12 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
         A0 = peak_val - offset0
         tau0 = (t_fit[end] - t_fit[1]) / 3.0
 
-        function model(p, t_vec)
+        function exp_model(p, t_vec)
             A, tau, offset = p
             return @. A * exp(-(t_vec - t_start) / abs(tau)) + offset
         end
 
-        prob = NonlinearCurveFitProblem(model, [A0, tau0, offset0], t_fit, signal_fit)
+        prob = NonlinearCurveFitProblem(exp_model, [A0, tau0, offset0], t_fit, signal_fit)
         sol = solve(prob)
 
         A, tau, offset = coef(sol)
@@ -196,6 +207,52 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
             signal_type, residuals(sol), _rsquared(signal_fit, rss(sol))
         )
     end
+end
+
+# =============================================================================
+# Stretched-exponential fitting (internal)
+# =============================================================================
+
+function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range=nothing)
+    t = trace.time
+    sig = trace.signal
+
+    if !isnothing(t_range)
+        mask = (t .>= t_range[1]) .& (t .<= t_range[2])
+        origin = float(t_range[1])
+    else
+        mask = t .>= t_start
+        origin = t_start
+    end
+    count(mask) >= 5 || throw(ArgumentError(
+        "fit region contains $(count(mask)) points; need at least 5"))
+
+    t_fit = t[mask] .- origin
+    t_fit = max.(t_fit, eps(Float64))  # avoid NaN gradient of (t/τ)^β at t = 0
+    signal_fit = sig[mask]
+
+    signal_type = first(_detect_signal_type(signal_fit))
+    peak_val = signal_type == :esa ? maximum(signal_fit) : minimum(signal_fit)
+    n_end = max(1, min(10, length(signal_fit) ÷ 4))
+    offset0 = mean(signal_fit[end-n_end+1:end])
+    A0 = peak_val - offset0
+    tau0 = (t_fit[end] - t_fit[1]) / 3.0
+
+    function model(p, tv)
+        A, tau, beta, offset = p
+        return stretched_exponential([A, abs(tau), clamp(beta, 0.05, 1.0), offset], tv)
+    end
+
+    prob = NonlinearCurveFitProblem(model, [A0, tau0, 0.8, offset0], t_fit, signal_fit)
+    sol = solve(prob)
+    A, tau, beta, offset = coef(sol)
+
+    beta_c = clamp(beta, 0.05, 1.0)
+    beta_c <= 0.051 && @warn "stretched fit: β converged to the lower clamp (0.05); fit may be unreliable or the data is non-KWW"
+    beta_c >= 0.999 && @warn "stretched fit: β converged to the upper clamp (1.0); consider model=:exponential"
+
+    return StretchedDecayFit(A, abs(tau), beta_c, origin, offset,
+                             signal_type, residuals(sol), _rsquared(signal_fit, rss(sol)))
 end
 
 # =============================================================================

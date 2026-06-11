@@ -21,6 +21,7 @@ using SavitzkyGolay: savitzky_golay as _sg_filter
 using Interpolations
 using JSON
 import PhysicalConstants.CODATA2022: h, c_0, ħ
+using SpecialFunctions: gamma
 
 # Source files (order matters: types before functions that use them)
 include("types.jl")
@@ -65,7 +66,7 @@ export DecompositionResult, pca_map, nmf_map
 # ==========================================================================
 # Exports — Fit Results
 # ==========================================================================
-export ExpDecayFit, MultiexpDecayFit, GlobalFitResult
+export ExpDecayFit, MultiexpDecayFit, GlobalFitResult, StretchedDecayFit
 export MultiPeakFitResult, PeakFitResult
 export TAPeak, TASpectrumFit, anharmonicity, das
 
@@ -76,6 +77,7 @@ export fit_exp_decay, fit_global
 export fit_peaks, predict_peak, predict_baseline
 export fit_ta_spectrum
 export report, format_results, polynomial
+export mean_lifetime
 
 # ==========================================================================
 # Exports — Chirp correction
@@ -135,6 +137,7 @@ export coef, residuals, predict, fitted, stderror, confint, rss, mse, nobs, isco
 # ==========================================================================
 export gaussian, lorentzian, pseudo_voigt, single_exponential
 export fano, voigt, log_normal
+export stretched_exponential
 
 # ==========================================================================
 # Plotting — methods live in OpticalSpectroscopyMakieExt (loaded with Makie)
