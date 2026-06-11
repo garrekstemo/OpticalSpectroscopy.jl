@@ -2908,6 +2908,63 @@ Random.seed!(42)
         @test xlabel(g_empty) == "Wavelength (nm)"
         @test occursin("0 points", sprint(show, g_empty))
         @test sprint(show, MIME("text/plain"), g_empty) isa String
+        @test occursin("500.0 to 520.0 nm", sprint(show, g))
+        g_src = GatedSpectrum([500.0], [1.0]; metadata=Dict{Symbol,Any}(:source => "demo.img"))
+        @test occursin("demo.img", sprint(show, MIME("text/plain"), g_src))
+    end
+
+    @testset "TimeResolvedMatrix slices" begin
+        t = [0.0, 1.0, 2.0]
+        wl = [500.0, 510.0, 520.0]
+        data = [1.0 2.0 3.0;
+                4.0 5.0 6.0;
+                7.0 8.0 9.0]   # rows = time, cols = wavelength
+        md = Dict{Symbol,Any}(:signal_label => "Counts", :time_unit => "ns")
+        m = TimeResolvedMatrix(t, wl, data; metadata=md)
+
+        # nearest single column
+        tr = kinetic_trace(m; wavelength=511.0)
+        @test tr isa KineticTrace
+        @test tr.signal == [2.0, 5.0, 8.0]
+        @test tr.wavelength == 510.0
+        @test tr.metadata[:signal_label] == "Counts"
+
+        # band mean over all three columns (510 ± 10 → [500, 520])
+        tr_band = kinetic_trace(m; wavelength=510.0, band=20.0)
+        @test tr_band.signal == [2.0, 5.0, 8.0]
+        @test tr_band.wavelength == 510.0
+        @test tr_band.metadata[:band] == 20.0
+        @test !haskey(tr.metadata, :band)
+        @test integrate_time(m).metadata[:signal_label] == "Counts"
+        @test_throws ArgumentError kinetic_trace(m; wavelength=NaN)
+
+        # empty band falls back to nearest column (deterministic: argmin ties break to first)
+        tr_fb = kinetic_trace(m; wavelength=505.0, band=2.0)
+        @test tr_fb.signal == [1.0, 4.0, 7.0]
+        @test tr_fb.wavelength == 500.0
+
+        # nearest single row
+        sp = spectral_slice(m; time=1.2)
+        @test sp isa GatedSpectrum
+        @test sp.signal == [4.0, 5.0, 6.0]
+        @test sp.t_range == (1.0, 1.0)
+        @test sp.metadata[:time_unit] == "ns"
+
+        # gated mean over rows 2:3 (1.5 ± 1 → [0.5, 2.5])
+        sp_win = spectral_slice(m; time=1.5, window=2.0)
+        @test sp_win.signal == [5.5, 6.5, 7.5]
+        @test sp_win.t_range == (1.0, 2.0)
+
+        # time-integrated spectrum (sum)
+        g = integrate_time(m)
+        @test g isa GatedSpectrum
+        @test g.signal == [12.0, 15.0, 18.0]
+        @test g.t_range == (0.0, 2.0)
+
+        g2 = integrate_time(m; t_range=(1.0, 2.0))
+        @test g2.signal == [11.0, 13.0, 15.0]
+        @test g2.t_range == (1.0, 2.0)
+        @test_throws ArgumentError integrate_time(m; t_range=(10.0, 20.0))
     end
 
 end

@@ -901,17 +901,11 @@ function Base.getindex(m::TimeResolvedMatrix; λ=nothing, t=nothing)
         actual_λ = m.wavelength[idx]
         signal = m.data[:, idx]
 
-        metadata = Dict{Symbol,Any}(
-            :extracted_from => get(m.metadata, :source, "TimeResolvedMatrix"),
-            :requested_wavelength => λ,
-            :actual_wavelength => actual_λ,
-            :wavelength_index => idx
-        )
-
-        # Propagate display semantics from the parent matrix
-        for key in (:time_unit, :signal_label)
-            haskey(m.metadata, key) && (metadata[key] = m.metadata[key])
-        end
+        metadata = copy(m.metadata)
+        metadata[:extracted_from] = get(m.metadata, :source, "TimeResolvedMatrix")
+        metadata[:requested_wavelength] = λ
+        metadata[:actual_wavelength] = actual_λ
+        metadata[:wavelength_index] = idx
 
         return KineticTrace(m.time, signal, actual_λ, metadata)
 
@@ -953,7 +947,7 @@ extraction; `(NaN, NaN)` if unknown.
 - `wavelength::Vector{Float64}`: Spectral axis
 - `signal::Vector{Float64}`: Signal at each wavelength
 - `t_range::Tuple{Float64,Float64}`: Time window of extraction
-- `metadata::Dict{Symbol,Any}`: Additional info
+- `metadata::Dict{Symbol,Any}`: Additional info; display reads `:signal_label`, `:time_unit`, and `:source`
 """
 struct GatedSpectrum <: AbstractSpectroscopyData
     wavelength::Vector{Float64}
@@ -996,9 +990,11 @@ signal(g::GatedSpectrum) = g.signal
 function Base.show(io::IO, g::GatedSpectrum)
     n = length(g.wavelength)
     tu = get(g.metadata, :time_unit, "ps")
+    range = isempty(g.wavelength) ? "" :
+        ", $(round(minimum(g.wavelength), digits=1)) to $(round(maximum(g.wavelength), digits=1)) $(_detect_spectral_unit(g.wavelength))"
     gate = any(isnan, g.t_range) ? "" :
         ", t = $(round(g.t_range[1], digits=2)) to $(round(g.t_range[2], digits=2)) $tu"
-    print(io, "GatedSpectrum: $n points$gate")
+    print(io, "GatedSpectrum: $n points$range$gate")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", g::GatedSpectrum)
@@ -1011,6 +1007,9 @@ function Base.show(io::IO, ::MIME"text/plain", g::GatedSpectrum)
     end
     if !any(isnan, g.t_range)
         println(io, "  Time gate:   $(round(g.t_range[1], digits=2)) to $(round(g.t_range[2], digits=2)) $tu")
+    end
+    if haskey(g.metadata, :source)
+        println(io, "  Source:      $(g.metadata[:source])")
     end
 end
 

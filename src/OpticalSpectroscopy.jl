@@ -24,6 +24,7 @@ import PhysicalConstants.CODATA2022: h, c_0, ħ
 
 # Source files (order matters: types before functions that use them)
 include("types.jl")
+include("timeresolved.jl")
 include("units.jl")
 include("spectroscopy.jl")
 include("baseline.jl")
@@ -44,6 +45,9 @@ export xdata, ydata, zdata, xlabel, ylabel, zlabel, is_matrix
 export source_file, npoints, title
 export KineticTrace, TASpectrum, TimeResolvedMatrix, GatedSpectrum, SweepData
 export delay, signal, wavenumber, wavelength
+
+# Time-resolved slice extraction
+export kinetic_trace, spectral_slice, integrate_time
 
 # PL/Raman spatial mapping
 export PLMap, extract_spectrum, peak_centers, intensity
