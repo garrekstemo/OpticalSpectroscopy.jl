@@ -39,6 +39,18 @@ function transmittance_to_absorbance(T::AbstractVector; percent::Bool=false)
 end
 
 """
+    transmittance_to_absorbance(s::Spectrum; percent=false) -> Spectrum
+
+Convert a transmittance [`Spectrum`](@ref) to absorbance. Sets
+`metadata[:ylabel] = "Absorbance"` on the result.
+"""
+function transmittance_to_absorbance(s::Spectrum; percent::Bool=false)
+    md = copy(s.metadata)
+    md[:ylabel] = "Absorbance"
+    return Spectrum(s.x, transmittance_to_absorbance(s.y; percent=percent), md)
+end
+
+"""
     absorbance_to_transmittance(A; percent=false)
 
 Convert absorbance to transmittance: `T = 10^(-A)`.
@@ -50,6 +62,19 @@ end
 
 function absorbance_to_transmittance(A::AbstractVector; percent::Bool=false)
     return absorbance_to_transmittance.(A; percent=percent)
+end
+
+"""
+    absorbance_to_transmittance(s::Spectrum; percent=false) -> Spectrum
+
+Convert an absorbance [`Spectrum`](@ref) to transmittance. Sets
+`metadata[:ylabel]` to `"Transmittance"` (or `"Transmittance (%)"` when
+`percent=true`) on the result.
+"""
+function absorbance_to_transmittance(s::Spectrum; percent::Bool=false)
+    md = copy(s.metadata)
+    md[:ylabel] = percent ? "Transmittance (%)" : "Transmittance"
+    return Spectrum(s.x, absorbance_to_transmittance(s.y; percent=percent), md)
 end
 
 # ============================================================================
@@ -101,6 +126,16 @@ function smooth_data(y; window=3)
         smoothed[i] = mean(@view y[start_idx:end_idx])
     end
     return smoothed
+end
+
+"""
+    smooth_data(s::Spectrum; window=3) -> Spectrum
+
+Moving-average smoothing of a [`Spectrum`](@ref). Returns a new `Spectrum`
+with copied metadata.
+"""
+function smooth_data(s::Spectrum; window=3)
+    return Spectrum(s.x, smooth_data(s.y; window=window), copy(s.metadata))
 end
 
 """
@@ -185,6 +220,16 @@ function savitzky_golay_smooth(y::AbstractVector{<:Real}; window::Int=11, order:
 end
 
 """
+    savitzky_golay_smooth(s::Spectrum; window=11, order=3) -> Spectrum
+
+Savitzky-Golay smoothing of a [`Spectrum`](@ref). Returns a new `Spectrum`
+with copied metadata.
+"""
+function savitzky_golay_smooth(s::Spectrum; window::Int=11, order::Int=3)
+    return Spectrum(s.x, savitzky_golay_smooth(s.y; window=window, order=order), copy(s.metadata))
+end
+
+"""
     derivative(y; order=1, window=11, poly_order=3)
     derivative(x, y; order=1, window=11, poly_order=3)
 
@@ -222,6 +267,17 @@ function derivative(x::AbstractVector{<:Real}, y::AbstractVector{<:Real};
     dx = median(diff(collect(x)))
     rate = 1.0 / abs(dx)
     return _sg_filter(y, window, poly_order, deriv=order, rate=rate).y
+end
+
+"""
+    derivative(s::Spectrum; order=1, window=11, poly_order=3) -> Spectrum
+
+Savitzky-Golay derivative of a [`Spectrum`](@ref), scaled by the x-spacing.
+Returns a new `Spectrum` with copied metadata.
+"""
+function derivative(s::Spectrum; order::Int=1, window::Int=11, poly_order::Int=3)
+    return Spectrum(s.x, derivative(s.x, s.y; order=order, window=window, poly_order=poly_order),
+                    copy(s.metadata))
 end
 
 """
@@ -297,6 +353,16 @@ function normalize_area(x::AbstractVector{<:Real}, y::AbstractVector{<:Real})
 end
 
 """
+    normalize_area(s::Spectrum) -> Spectrum
+
+Normalize a [`Spectrum`](@ref) to unit integrated area. Returns a new
+`Spectrum` with copied metadata.
+"""
+function normalize_area(s::Spectrum)
+    return Spectrum(s.x, normalize_area(s.x, s.y), copy(s.metadata))
+end
+
+"""
     normalize_to_peak(x, y, position; tolerance=5.0)
 
 Normalize a spectrum by dividing by the intensity at a specified peak position.
@@ -333,6 +399,17 @@ function normalize_to_peak(x::AbstractVector{<:Real}, y::AbstractVector{<:Real},
     abs(val) < eps(Float64) && throw(ArgumentError(
         "Intensity at position=$position is zero; cannot normalize"))
     return Float64.(y ./ val)
+end
+
+"""
+    normalize_to_peak(s::Spectrum, position; tolerance=5.0) -> Spectrum
+
+Normalize a [`Spectrum`](@ref) to the intensity at `position`. Returns a new
+`Spectrum` with copied metadata.
+"""
+function normalize_to_peak(s::Spectrum, position::Real; tolerance::Real=5.0)
+    return Spectrum(s.x, normalize_to_peak(s.x, s.y, position; tolerance=tolerance),
+                    copy(s.metadata))
 end
 
 """

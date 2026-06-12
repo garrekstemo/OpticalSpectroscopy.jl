@@ -326,6 +326,60 @@ Random.seed!(42)
         @test_throws ArgumentError estimate_snr(m)
     end
 
+    @testset "Spectrum transformations - smoothing and normalization" begin
+        x = collect(400.0:1.0:800.0)
+        y = @. 50 * exp(-(x - 520)^2 / (2 * 10^2)) + 0.5
+        s = Spectrum(x, y; sample="test")
+
+        sm = smooth_data(s; window=5)
+        @test sm isa Spectrum
+        @test sm.x == s.x
+        @test sm.y ≈ smooth_data(y; window=5)
+        @test sm.metadata == s.metadata
+
+        # Metadata is copied, not aliased
+        sm.metadata[:extra] = 1
+        @test !haskey(s.metadata, :extra)
+
+        sg = savitzky_golay_smooth(s; window=11, order=3)
+        @test sg isa Spectrum
+        @test sg.y ≈ savitzky_golay_smooth(y; window=11, order=3)
+
+        dv = derivative(s; order=1)
+        @test dv isa Spectrum
+        @test dv.y ≈ derivative(x, y; order=1)
+
+        na = normalize_area(s)
+        @test na isa Spectrum
+        @test na.y ≈ normalize_area(x, y)
+        @test band_area(na, 400.0, 800.0) ≈ 1.0
+
+        np = normalize_to_peak(s, 520.0)
+        @test np isa Spectrum
+        @test np.y ≈ normalize_to_peak(x, y, 520.0)
+    end
+
+    @testset "Spectrum transformations - transmittance/absorbance" begin
+        x = [1500.0, 1600.0]
+        s_t = Spectrum(x, [0.5, 0.1]; sample="test")
+
+        a = transmittance_to_absorbance(s_t)
+        @test a isa Spectrum
+        @test a.y ≈ transmittance_to_absorbance([0.5, 0.1])
+        @test a.metadata[:ylabel] == "Absorbance"
+        @test a.metadata[:sample] == "test"   # other keys preserved
+        @test !haskey(s_t.metadata, :ylabel)  # input untouched
+
+        t = absorbance_to_transmittance(a)
+        @test t isa Spectrum
+        @test t.y ≈ [0.5, 0.1]
+        @test t.metadata[:ylabel] == "Transmittance"
+
+        t_pct = absorbance_to_transmittance(a; percent=true)
+        @test t_pct.y ≈ [50.0, 10.0]
+        @test t_pct.metadata[:ylabel] == "Transmittance (%)"
+    end
+
     @testset "fit_peaks with raw vectors" begin
         # Synthetic single lorentzian peak
         x = collect(1900.0:0.5:2200.0)
