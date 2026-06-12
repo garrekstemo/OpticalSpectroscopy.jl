@@ -292,6 +292,7 @@ end
 
 # Dispatch for AbstractSpectroscopyData with region
 function fit_peaks(spec::AbstractSpectroscopyData, region::Tuple{Real, Real}; kwargs...)
+    _check_1d(spec, "fit_peaks")
     x_full = xdata(spec)
     y_full = ydata(spec)
 
@@ -310,6 +311,7 @@ end
 
 # Dispatch for AbstractSpectroscopyData without region (full range)
 function fit_peaks(spec::AbstractSpectroscopyData; kwargs...)
+    _check_1d(spec, "fit_peaks")
     x = xdata(spec)
     y = ydata(spec)
 

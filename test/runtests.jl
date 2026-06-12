@@ -275,6 +275,16 @@ Random.seed!(42)
         @test sprint(show, MIME("text/plain"), s_empty) isa String
     end
 
+    @testset "Generic dispatches reject 2D data" begin
+        m = TimeResolvedMatrix([0.0, 1.0, 2.0], [700.0, 750.0], rand(3, 2))
+        @test_throws ArgumentError fit_peaks(m)
+        @test_throws ArgumentError fit_peaks(m, (700.0, 750.0))
+        @test_throws ArgumentError subtract_spectrum(m, m)
+        @test_throws ArgumentError add_spectra(m, m)
+        @test_throws ArgumentError divide_spectra(m, m)
+        @test_throws ArgumentError multiply_spectrum(m, 2.0)
+    end
+
     @testset "fit_peaks with raw vectors" begin
         # Synthetic single lorentzian peak
         x = collect(1900.0:0.5:2200.0)

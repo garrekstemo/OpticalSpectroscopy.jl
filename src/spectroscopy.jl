@@ -74,6 +74,7 @@ end
 # Typed dispatch: AbstractSpectroscopyData → xdata/ydata interface
 function subtract_spectrum(sample::AbstractSpectroscopyData,
                            reference::AbstractSpectroscopyData; kwargs...)
+    _check_1d(sample, "subtract_spectrum"); _check_1d(reference, "subtract_spectrum")
     subtract_spectrum((x=xdata(sample), y=ydata(sample)),
                       (x=xdata(reference), y=ydata(reference)); kwargs...)
 end
@@ -439,13 +440,16 @@ end
 
 # Typed dispatches for AbstractSpectroscopyData
 function add_spectra(a::AbstractSpectroscopyData, b::AbstractSpectroscopyData; kwargs...)
+    _check_1d(a, "add_spectra"); _check_1d(b, "add_spectra")
     add_spectra((x=xdata(a), y=ydata(a)), (x=xdata(b), y=ydata(b)); kwargs...)
 end
 
 function divide_spectra(a::AbstractSpectroscopyData, b::AbstractSpectroscopyData; kwargs...)
+    _check_1d(a, "divide_spectra"); _check_1d(b, "divide_spectra")
     divide_spectra((x=xdata(a), y=ydata(a)), (x=xdata(b), y=ydata(b)); kwargs...)
 end
 
 function multiply_spectrum(spec::AbstractSpectroscopyData, factor::Real)
+    _check_1d(spec, "multiply_spectrum")
     multiply_spectrum((x=xdata(spec), y=ydata(spec)), factor)
 end

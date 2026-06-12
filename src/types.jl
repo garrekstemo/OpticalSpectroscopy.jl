@@ -121,6 +121,14 @@ Return a display title for the data. Defaults to `source_file(d)`.
 """
 title(d::AbstractSpectroscopyData) = source_file(d)
 
+# Guard for generic 1D dispatches: matrix types must be sliced first.
+function _check_1d(d::AbstractSpectroscopyData, fname::AbstractString)
+    is_matrix(d) && throw(ArgumentError(
+        "$fname requires 1D data; got 2D $(nameof(typeof(d))). " *
+        "Extract a 1D slice first (e.g. spectral_slice or matrix[t=...])."))
+    return nothing
+end
+
 # =============================================================================
 # Transient Absorption types (unified API)
 # =============================================================================
