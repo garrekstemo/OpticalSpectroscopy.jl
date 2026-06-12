@@ -1115,7 +1115,7 @@ end
     Spectrum <: AbstractSpectroscopyData
 
     Spectrum(x, y)
-    Spectrum(x, y, metadata::Dict{Symbol,Any})
+    Spectrum(x, y, metadata::AbstractDict)
     Spectrum(x, y; metadata...)
 
 Generic 1D steady-state spectrum: signal versus a spectral axis.
@@ -1181,8 +1181,9 @@ signal(s::Spectrum) = s.y
 
 function Base.show(io::IO, s::Spectrum)
     n = length(s.x)
+    unit = haskey(s.metadata, :xlabel) ? "" : " $(_detect_spectral_unit(s.x))"
     range = isempty(s.x) ? "" :
-        ", $(round(minimum(s.x), digits=1)) to $(round(maximum(s.x), digits=1))"
+        ", $(round(minimum(s.x), digits=1)) to $(round(maximum(s.x), digits=1))$unit"
     print(io, "Spectrum: $n points$range")
 end
 

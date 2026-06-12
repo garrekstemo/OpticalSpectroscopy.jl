@@ -219,6 +219,10 @@ Random.seed!(42)
         s_md = Spectrum([1.0, 2.0], [3.0, 4.0], md)
         @test s_md.metadata[:sample] == "NH4SCN"
 
+        # Int x data converts to Vector{Float64}
+        s_int_x = Spectrum([1500, 1501], [0.1, 0.2])
+        @test s_int_x.x isa Vector{Float64}
+
         # Length mismatch throws
         @test_throws ArgumentError Spectrum([1.0, 2.0], [1.0])
     end
@@ -259,6 +263,9 @@ Random.seed!(42)
                      sample="test", cavity_length=12e-4)
         @test occursin("Spectrum", sprint(show, s))
         @test occursin("5 points", sprint(show, s))
+        @test occursin("cm⁻¹", sprint(show, s))
+        s_xlbl = Spectrum([1.0, 2.0], [3.0, 4.0]; xlabel="Energy (eV)")
+        @test !occursin("nm", sprint(show, s_xlbl))
         long = sprint(show, MIME("text/plain"), s)
         @test occursin("Points", long)
         @test occursin("sample", long)
