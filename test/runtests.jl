@@ -382,6 +382,53 @@ Random.seed!(42)
         @test t_pct.metadata[:ylabel] == "Transmittance (%)"
     end
 
+    @testset "Spectrum arithmetic returns Spectrum" begin
+        x = collect(1500.0:1.0:1599.0)
+        ya = @. 1.0 + 0.01 * (x - 1500)
+        yb = fill(0.5, length(x))
+        a = Spectrum(x, ya; sample="A")
+        b = Spectrum(x, yb; sample="B")
+
+        d = subtract_spectrum(a, b)
+        @test d isa Spectrum
+        @test d.y ≈ ya .- yb
+        @test d.metadata[:sample] == "A"   # first argument's metadata wins
+
+        sc = subtract_spectrum(a, b; scale=2.0)
+        @test sc.y ≈ ya .- 2.0 .* yb
+
+        su = add_spectra(a, b)
+        @test su isa Spectrum
+        @test su.y ≈ ya .+ yb
+        @test su.metadata[:sample] == "A"
+
+        q = divide_spectra(a, b)
+        @test q isa Spectrum
+        @test q.y ≈ ya ./ yb
+
+        m2 = multiply_spectrum(a, 2.0)
+        @test m2 isa Spectrum
+        @test m2.y ≈ 2.0 .* ya
+
+        av = average_spectra(a, b)
+        @test av isa Spectrum
+        @test av.y ≈ (ya .+ yb) ./ 2
+        @test av.metadata[:sample] == "A"
+
+        new_x = collect(1500.0:0.5:1599.0)
+        it = interpolate_spectrum(a, new_x)
+        @test it isa Spectrum
+        @test it.x == new_x
+        @test it.y ≈ interpolate_spectrum(x, ya, new_x)
+        @test it.metadata[:sample] == "A"
+
+        # Mixed family types still return NamedTuples (generic path)
+        g = GatedSpectrum(x, yb)
+        nt = subtract_spectrum(a, g)
+        @test nt isa NamedTuple
+        @test nt.y ≈ ya .- yb
+    end
+
     @testset "fit_peaks with raw vectors" begin
         # Synthetic single lorentzian peak
         x = collect(1900.0:0.5:2200.0)

@@ -542,6 +542,17 @@ function interpolate_spectrum(x, y, new_x)
     return itp.(new_x)
 end
 
+"""
+    interpolate_spectrum(s::Spectrum, new_x) -> Spectrum
+
+Resample a spectrum onto `new_x` by linear interpolation. Returns a new
+`Spectrum` with shallow-copied metadata.
+"""
+function interpolate_spectrum(s::Spectrum, new_x::AbstractVector{<:Real})
+    return Spectrum(collect(Float64.(new_x)), interpolate_spectrum(s.x, s.y, new_x),
+                    copy(s.metadata))
+end
+
 # Typed dispatches for AbstractSpectroscopyData
 function add_spectra(a::AbstractSpectroscopyData, b::AbstractSpectroscopyData; kwargs...)
     _check_1d(a, "add_spectra"); _check_1d(b, "add_spectra")
@@ -556,4 +567,60 @@ end
 function multiply_spectrum(spec::AbstractSpectroscopyData, factor::Real)
     _check_1d(spec, "multiply_spectrum")
     multiply_spectrum((x=xdata(spec), y=ydata(spec)), factor)
+end
+
+# Spectrum-in → Spectrum-out arithmetic. The result keeps the first
+# argument's metadata (shallow-copied).
+
+"""
+    subtract_spectrum(s::Spectrum, ref::Spectrum; scale=1.0, interpolate=false) -> Spectrum
+
+Subtract `ref` from `s`. Returns a new `Spectrum` carrying `s`'s
+shallow-copied metadata.
+"""
+function subtract_spectrum(s::Spectrum, ref::Spectrum; scale::Real=1.0, interpolate=false)
+    res = subtract_spectrum((x=s.x, y=s.y), (x=ref.x, y=ref.y); scale=scale, interpolate=interpolate)
+    return Spectrum(res.x, res.y, copy(s.metadata))
+end
+
+"""
+    add_spectra(a::Spectrum, b::Spectrum; interpolate=false) -> Spectrum
+
+Add two spectra. Returns a new `Spectrum` carrying `a`'s shallow-copied metadata.
+"""
+function add_spectra(a::Spectrum, b::Spectrum; interpolate=false)
+    res = add_spectra((x=a.x, y=a.y), (x=b.x, y=b.y); interpolate=interpolate)
+    return Spectrum(res.x, res.y, copy(a.metadata))
+end
+
+"""
+    divide_spectra(a::Spectrum, b::Spectrum; interpolate=false) -> Spectrum
+
+Divide `a` by `b` element-wise. Returns a new `Spectrum` carrying `a`'s
+shallow-copied metadata.
+"""
+function divide_spectra(a::Spectrum, b::Spectrum; interpolate=false)
+    res = divide_spectra((x=a.x, y=a.y), (x=b.x, y=b.y); interpolate=interpolate)
+    return Spectrum(res.x, res.y, copy(a.metadata))
+end
+
+"""
+    multiply_spectrum(s::Spectrum, factor::Real) -> Spectrum
+
+Scale a spectrum by a constant. Returns a new `Spectrum` with shallow-copied
+metadata.
+"""
+function multiply_spectrum(s::Spectrum, factor::Real)
+    return Spectrum(s.x, s.y .* factor, copy(s.metadata))
+end
+
+"""
+    average_spectra(specs::Spectrum...; interpolate=false) -> Spectrum
+
+Point-wise average. Returns a new `Spectrum` carrying the first spectrum's
+shallow-copied metadata.
+"""
+function average_spectra(specs::Spectrum...; interpolate=false)
+    res = average_spectra(map(s -> (x=s.x, y=s.y), specs)...; interpolate=interpolate)
+    return Spectrum(res.x, res.y, copy(specs[1].metadata))
 end
