@@ -287,6 +287,39 @@ Random.seed!(42)
         @test_throws ArgumentError multiply_spectrum(p, 2.0)
     end
 
+    @testset "Generic analysis dispatches - Spectrum and family" begin
+        x = collect(400.0:0.5:800.0)
+        y = @. 100 * exp(-(x - 520)^2 / (2 * 10^2)) + 5
+        s = Spectrum(x, y)
+
+        # find_peaks
+        pks_typed = find_peaks(s)
+        pks_vec = find_peaks(x, y)
+        @test length(pks_typed) == length(pks_vec) == 1
+        @test pks_typed[1].position == pks_vec[1].position
+
+        # band_area
+        @test band_area(s, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
+
+        # calc_fwhm
+        @test calc_fwhm(s) == calc_fwhm(x, y)
+
+        # estimate_snr
+        @test estimate_snr(s) == estimate_snr(y)
+
+        # Works for other 1D family members too
+        g = GatedSpectrum(x, y)
+        @test find_peaks(g)[1].position == pks_vec[1].position
+        @test band_area(g, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
+
+        # 2D guard
+        m = TimeResolvedMatrix([0.0, 1.0], [700.0, 750.0], rand(2, 2))
+        @test_throws ArgumentError find_peaks(m)
+        @test_throws ArgumentError band_area(m, 1.0, 2.0)
+        @test_throws ArgumentError calc_fwhm(m)
+        @test_throws ArgumentError estimate_snr(m)
+    end
+
     @testset "fit_peaks with raw vectors" begin
         # Synthetic single lorentzian peak
         x = collect(1900.0:0.5:2200.0)

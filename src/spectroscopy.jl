@@ -143,6 +143,12 @@ function calc_fwhm(x, y; smooth_window=5)
     )
 end
 
+# Generic dispatch: any 1D AbstractSpectroscopyData via the xdata/ydata interface
+function calc_fwhm(spec::AbstractSpectroscopyData; kwargs...)
+    _check_1d(spec, "calc_fwhm")
+    return calc_fwhm(xdata(spec), ydata(spec); kwargs...)
+end
+
 # ============================================================================
 # SPECTRAL MATH FUNCTIONS
 # ============================================================================
@@ -252,6 +258,12 @@ function band_area(x::AbstractVector{<:Real}, y::AbstractVector{<:Real},
     return area
 end
 
+# Generic dispatch: any 1D AbstractSpectroscopyData via the xdata/ydata interface
+function band_area(spec::AbstractSpectroscopyData, x_min::Real, x_max::Real)
+    _check_1d(spec, "band_area")
+    return band_area(xdata(spec), ydata(spec), x_min, x_max)
+end
+
 """
     normalize_area(x, y)
 
@@ -352,6 +364,12 @@ function estimate_snr(y::AbstractVector{<:Real})
     signal = median(y)
     snr = noise > 0 ? signal / noise : Inf
     return (snr=snr, signal=signal, noise=noise)
+end
+
+# Generic dispatch: any 1D AbstractSpectroscopyData via the xdata/ydata interface
+function estimate_snr(spec::AbstractSpectroscopyData)
+    _check_1d(spec, "estimate_snr")
+    return estimate_snr(ydata(spec))
 end
 
 # ============================================================================
