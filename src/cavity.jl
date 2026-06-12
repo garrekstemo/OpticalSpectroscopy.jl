@@ -1,11 +1,12 @@
 # Cavity & polariton spectroscopy: Fabry-Pérot physics, coupled-oscillator
 # polariton models, and spectrum/dispersion fitting.
-# Merged from CavitySpectroscopy.jl (repo archived); the generic
+# Merged from CavitySpectroscopy.jl (repo retired); the generic
 # CavitySpectrum container was deliberately not carried over — this API is
 # vector-in, result-out, like the rest of the 1D steady-state layer.
 
-# Cavity and polariton physics.
-#
+# =============================================================================
+# Physics
+# =============================================================================
 # Physics chain for the transmittance model:
 # 1. Multi-oscillator dielectric function (CurveFitModels: `dielectric_real`,
 #    `dielectric_imag`)
@@ -477,7 +478,9 @@ function format_results(r::DispersionFitResult)
     return join(lines, "\n")
 end
 
-# Fitting: cavity transmission spectra and polariton dispersion.
+# =============================================================================
+# Fitting: cavity transmission spectra and polariton dispersion
+# =============================================================================
 
 """
     _find_local_maxima(x, y; min_prominence=0.0)
