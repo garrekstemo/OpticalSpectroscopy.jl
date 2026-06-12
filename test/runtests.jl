@@ -461,7 +461,7 @@ Random.seed!(42)
         r = Spectrum([500.0, 600.0], [0.3, 0.6])
         km = kubelka_munk(r)
         @test km isa Spectrum
-        @test km.y ≈ kubelka_munk([0.3, 0.6])
+        @test km.y ≈ kubelka_munk.([0.3, 0.6])
         @test km.metadata[:ylabel] == "F(R)"
     end
 
