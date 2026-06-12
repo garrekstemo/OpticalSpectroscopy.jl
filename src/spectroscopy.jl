@@ -546,7 +546,8 @@ end
     interpolate_spectrum(s::Spectrum, new_x) -> Spectrum
 
 Resample a spectrum onto `new_x` by linear interpolation. Returns a new
-`Spectrum` with shallow-copied metadata.
+`Spectrum` with shallow-copied metadata. The order of `new_x` is preserved
+in the returned `Spectrum`.
 """
 function interpolate_spectrum(s::Spectrum, new_x::AbstractVector{<:Real})
     return Spectrum(collect(Float64.(new_x)), interpolate_spectrum(s.x, s.y, new_x),
@@ -611,7 +612,8 @@ Scale a spectrum by a constant. Returns a new `Spectrum` with shallow-copied
 metadata.
 """
 function multiply_spectrum(s::Spectrum, factor::Real)
-    return Spectrum(s.x, s.y .* factor, copy(s.metadata))
+    res = multiply_spectrum((x=s.x, y=s.y), factor)
+    return Spectrum(res.x, res.y, copy(s.metadata))
 end
 
 """
@@ -621,6 +623,7 @@ Point-wise average. Returns a new `Spectrum` carrying the first spectrum's
 shallow-copied metadata.
 """
 function average_spectra(specs::Spectrum...; interpolate=false)
+    isempty(specs) && throw(ArgumentError("average_spectra requires at least one spectrum"))
     res = average_spectra(map(s -> (x=s.x, y=s.y), specs)...; interpolate=interpolate)
     return Spectrum(res.x, res.y, copy(specs[1].metadata))
 end

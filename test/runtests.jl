@@ -415,6 +415,13 @@ Random.seed!(42)
         @test av.y ≈ (ya .+ yb) ./ 2
         @test av.metadata[:sample] == "A"
 
+        @test_throws ArgumentError average_spectra()
+
+        b_shift = Spectrum(x .+ 0.25, yb)
+        d_itp = subtract_spectrum(a, b_shift; interpolate=true)
+        @test d_itp isa Spectrum
+        @test d_itp.x == a.x
+
         new_x = collect(1500.0:0.5:1599.0)
         it = interpolate_spectrum(a, new_x)
         @test it isa Spectrum
