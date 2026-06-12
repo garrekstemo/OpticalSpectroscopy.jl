@@ -398,6 +398,18 @@ function correct_baseline(x::AbstractVector, y::AbstractVector{<:Real};
     return (x=collect(x), y=result.y, baseline=result.baseline)
 end
 
+"""
+    correct_baseline(s::Spectrum; method=:arpls, kwargs...) -> Spectrum
+
+Baseline-correct a [`Spectrum`](@ref). Returns a new `Spectrum` with
+shallow-copied metadata. To inspect the baseline itself, use the vector form
+`correct_baseline(s.x, s.y; ...)`, which returns `(x, y, baseline)`.
+"""
+function correct_baseline(s::Spectrum; method::Symbol=:arpls, kwargs...)
+    res = correct_baseline(s.x, s.y; method=method, kwargs...)
+    return Spectrum(res.x, res.y, copy(s.metadata))
+end
+
 # =============================================================================
 # Internal utilities
 # =============================================================================

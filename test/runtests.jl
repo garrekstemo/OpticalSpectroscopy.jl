@@ -436,6 +436,35 @@ Random.seed!(42)
         @test nt.y ≈ ya .- yb
     end
 
+    @testset "Spectrum baseline correction and transforms" begin
+        x = collect(1000.0:1.0:1399.0)
+        y = @. 20 * exp(-(x - 1200)^2 / (2 * 15^2)) + 0.01 * (x - 1000) + 2
+        s = Spectrum(x, y; sample="test")
+
+        c = correct_baseline(s; method=:arpls)
+        @test c isa Spectrum
+        ref = correct_baseline(x, y; method=:arpls)
+        @test c.y ≈ ref.y
+        @test c.x == x
+        @test c.metadata[:sample] == "test"
+
+        # rubberband goes through the (x, y) branch
+        c_rb = correct_baseline(s; method=:rubberband)
+        @test c_rb isa Spectrum
+        @test c_rb.y ≈ correct_baseline(x, y; method=:rubberband).y
+
+        sv = snv(s)
+        @test sv isa Spectrum
+        @test sv.y ≈ snv(y)
+        @test sv.metadata == s.metadata
+
+        r = Spectrum([500.0, 600.0], [0.3, 0.6])
+        km = kubelka_munk(r)
+        @test km isa Spectrum
+        @test km.y ≈ kubelka_munk([0.3, 0.6])
+        @test km.metadata[:ylabel] == "F(R)"
+    end
+
     @testset "fit_peaks with raw vectors" begin
         # Synthetic single lorentzian peak
         x = collect(1900.0:0.5:2200.0)
