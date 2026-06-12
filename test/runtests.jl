@@ -3121,6 +3121,8 @@ Random.seed!(42)
 
         spec = TASpectrum(x, y)
         @test lines(spec) isa Makie.FigureAxisPlot
+        steady = Spectrum(x, y; ylabel="Transmittance")
+        @test lines(steady) isa Makie.FigureAxisPlot
 
         fig1 = plot_fit(fit)
         @test fig1 isa Makie.Figure
