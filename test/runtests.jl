@@ -283,6 +283,8 @@ Random.seed!(42)
         @test_throws ArgumentError add_spectra(m, m)
         @test_throws ArgumentError divide_spectra(m, m)
         @test_throws ArgumentError multiply_spectrum(m, 2.0)
+        p = PLMap(rand(2, 2), rand(2, 2, 3), [0.0, 1.0], [0.0, 1.0], [1.0, 2.0, 3.0])
+        @test_throws ArgumentError multiply_spectrum(p, 2.0)
     end
 
     @testset "fit_peaks with raw vectors" begin
