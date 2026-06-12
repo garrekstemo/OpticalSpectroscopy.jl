@@ -9,6 +9,7 @@ For guidance on choosing between algorithms, see [Baseline Algorithms](@ref).
 ```@docs
 correct_baseline(y::AbstractVector{<:Real}; method::Symbol, kwargs...)
 correct_baseline(x::AbstractVector, y::AbstractVector{<:Real}; kwargs...)
+correct_baseline(s::Spectrum)
 ```
 
 ## Individual Algorithms

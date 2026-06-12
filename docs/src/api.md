@@ -8,10 +8,11 @@ This page collects exported names that aren't covered by the grouped reference p
 OpticalSpectroscopy.OpticalSpectroscopy
 ```
 
-## Time-Resolved Data Types
+## Data Types
 
 ```@docs
 AbstractSpectroscopyData
+Spectrum
 KineticTrace
 TASpectrum
 TimeResolvedMatrix

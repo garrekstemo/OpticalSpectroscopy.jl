@@ -2,7 +2,7 @@
 
 **Spectroscopy analysis for Julia — steady-state and ultrafast.**
 
-For steady-state work, OpticalSpectroscopy provides peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`KineticTrace`, `TASpectrum`, `TimeResolvedMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
+For steady-state work, OpticalSpectroscopy provides a generic `Spectrum` type plus peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`KineticTrace`, `TASpectrum`, `TimeResolvedMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
 
 ## Installation
 
