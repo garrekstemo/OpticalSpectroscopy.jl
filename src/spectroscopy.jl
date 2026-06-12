@@ -42,7 +42,7 @@ end
     transmittance_to_absorbance(s::Spectrum; percent=false) -> Spectrum
 
 Convert a transmittance [`Spectrum`](@ref) to absorbance. Sets
-`metadata[:ylabel] = "Absorbance"` on the result.
+`metadata[:ylabel] = "Absorbance"` on the result, overwriting any prior value.
 """
 function transmittance_to_absorbance(s::Spectrum; percent::Bool=false)
     md = copy(s.metadata)
@@ -69,7 +69,7 @@ end
 
 Convert an absorbance [`Spectrum`](@ref) to transmittance. Sets
 `metadata[:ylabel]` to `"Transmittance"` (or `"Transmittance (%)"` when
-`percent=true`) on the result.
+`percent=true`) on the result, overwriting any prior value.
 """
 function absorbance_to_transmittance(s::Spectrum; percent::Bool=false)
     md = copy(s.metadata)
@@ -113,7 +113,7 @@ end
 
 Apply moving average smoothing to data.
 """
-function smooth_data(y; window=3)
+function smooth_data(y; window::Int=3)
     n = length(y)
     smoothed = similar(y)
     half_w = window ÷ 2
@@ -132,9 +132,9 @@ end
     smooth_data(s::Spectrum; window=3) -> Spectrum
 
 Moving-average smoothing of a [`Spectrum`](@ref). Returns a new `Spectrum`
-with copied metadata.
+with shallow-copied metadata.
 """
-function smooth_data(s::Spectrum; window=3)
+function smooth_data(s::Spectrum; window::Int=3)
     return Spectrum(s.x, smooth_data(s.y; window=window), copy(s.metadata))
 end
 
@@ -223,7 +223,7 @@ end
     savitzky_golay_smooth(s::Spectrum; window=11, order=3) -> Spectrum
 
 Savitzky-Golay smoothing of a [`Spectrum`](@ref). Returns a new `Spectrum`
-with copied metadata.
+with shallow-copied metadata.
 """
 function savitzky_golay_smooth(s::Spectrum; window::Int=11, order::Int=3)
     return Spectrum(s.x, savitzky_golay_smooth(s.y; window=window, order=order), copy(s.metadata))
@@ -273,7 +273,7 @@ end
     derivative(s::Spectrum; order=1, window=11, poly_order=3) -> Spectrum
 
 Savitzky-Golay derivative of a [`Spectrum`](@ref), scaled by the x-spacing.
-Returns a new `Spectrum` with copied metadata.
+Returns a new `Spectrum` with shallow-copied metadata.
 """
 function derivative(s::Spectrum; order::Int=1, window::Int=11, poly_order::Int=3)
     return Spectrum(s.x, derivative(s.x, s.y; order=order, window=window, poly_order=poly_order),
@@ -356,7 +356,7 @@ end
     normalize_area(s::Spectrum) -> Spectrum
 
 Normalize a [`Spectrum`](@ref) to unit integrated area. Returns a new
-`Spectrum` with copied metadata.
+`Spectrum` with shallow-copied metadata.
 """
 function normalize_area(s::Spectrum)
     return Spectrum(s.x, normalize_area(s.x, s.y), copy(s.metadata))
@@ -405,7 +405,7 @@ end
     normalize_to_peak(s::Spectrum, position; tolerance=5.0) -> Spectrum
 
 Normalize a [`Spectrum`](@ref) to the intensity at `position`. Returns a new
-`Spectrum` with copied metadata.
+`Spectrum` with shallow-copied metadata.
 """
 function normalize_to_peak(s::Spectrum, position::Real; tolerance::Real=5.0)
     return Spectrum(s.x, normalize_to_peak(s.x, s.y, position; tolerance=tolerance),

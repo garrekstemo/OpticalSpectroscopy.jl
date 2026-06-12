@@ -344,6 +344,8 @@ Random.seed!(42)
         sg = savitzky_golay_smooth(s; window=11, order=3)
         @test sg isa Spectrum
         @test sg.y ≈ savitzky_golay_smooth(y; window=11, order=3)
+        sg.metadata[:extra2] = 1
+        @test !haskey(s.metadata, :extra2)
 
         dv = derivative(s; order=1)
         @test dv isa Spectrum
