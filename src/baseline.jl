@@ -402,8 +402,9 @@ end
     correct_baseline(s::Spectrum; method=:arpls, kwargs...) -> Spectrum
 
 Baseline-correct a [`Spectrum`](@ref). Returns a new `Spectrum` with
-shallow-copied metadata. To inspect the baseline itself, use the vector form
-`correct_baseline(s.x, s.y; ...)`, which returns `(x, y, baseline)`.
+shallow-copied metadata. The baseline itself is not returned; to retrieve it,
+call `correct_baseline(s.x, s.y; method=method, kwargs...)` directly, which
+returns `(x=..., y=..., baseline=...)`.
 """
 function correct_baseline(s::Spectrum; method::Symbol=:arpls, kwargs...)
     res = correct_baseline(s.x, s.y; method=method, kwargs...)

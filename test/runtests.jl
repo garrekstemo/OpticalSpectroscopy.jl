@@ -463,6 +463,7 @@ Random.seed!(42)
         @test km isa Spectrum
         @test km.y ≈ kubelka_munk.([0.3, 0.6])
         @test km.metadata[:ylabel] == "F(R)"
+        @test_throws ArgumentError kubelka_munk(Spectrum([500.0, 600.0], [0.3, 0.0]))
     end
 
     @testset "fit_peaks with raw vectors" begin
