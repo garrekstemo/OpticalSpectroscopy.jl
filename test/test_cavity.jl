@@ -1,6 +1,5 @@
 # Cavity & polariton physics and fitting (merged from CavitySpectroscopy.jl).
-# Ported with the original suite's seed so the noisy-fit tolerances are
-# exercised on the same draws.
+# Reseeded so the noisy-fit draws are deterministic (original suite's seed).
 Random.seed!(20260611)
 
 using LinearAlgebra: eigen
@@ -438,7 +437,6 @@ end
         @test isapprox(result.oscillators[1].nu0, 2055.0, atol=1.0)
         @test isapprox(result.oscillators[1].Gamma, 23.0, atol=2.0)
     end
-
 
     @testset "Dispersion round-trip" begin
         # Generate synthetic dispersion data
