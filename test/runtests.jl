@@ -312,6 +312,12 @@ Random.seed!(42)
         @test find_peaks(g)[1].position == pks_vec[1].position
         @test band_area(g, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
 
+        # KineticTrace and TASpectrum flow through the same generic methods
+        kt = KineticTrace(x, y)
+        @test estimate_snr(kt) == estimate_snr(y)
+        ta = TASpectrum(x, y)
+        @test band_area(ta, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
+
         # 2D guard
         m = TimeResolvedMatrix([0.0, 1.0], [700.0, 750.0], rand(2, 2))
         @test_throws ArgumentError find_peaks(m)

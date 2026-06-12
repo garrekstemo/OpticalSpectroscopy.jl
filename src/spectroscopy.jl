@@ -105,8 +105,11 @@ end
 
 """
     calc_fwhm(x, y; smooth_window=5)
+    calc_fwhm(spec; smooth_window=5)
 
 Calculate full width at half maximum (FWHM) of the dominant positive peak.
+
+The `spec` form accepts any 1D `AbstractSpectroscopyData` (uses `xdata`/`ydata`).
 """
 function calc_fwhm(x, y; smooth_window=5)
     y_smooth = smooth_window > 1 ? _sg_filter(y, smooth_window, 2).y : y
@@ -223,9 +226,12 @@ end
 
 """
     band_area(x, y, x_min, x_max)
+    band_area(spec, x_min, x_max)
 
 Compute the integrated area under a spectrum within a given range using
 trapezoidal integration.
+
+The `spec` form accepts any 1D `AbstractSpectroscopyData` (uses `xdata`/`ydata`).
 
 # Arguments
 - `x::AbstractVector{<:Real}`: x-axis values (e.g., wavenumber, wavelength).
@@ -331,8 +337,11 @@ end
 
 """
     estimate_snr(y)
+    estimate_snr(spec)
 
 Estimate the signal-to-noise ratio using the DER-SNR method.
+
+The `spec` form accepts any 1D `AbstractSpectroscopyData` (signal comes from `ydata`).
 
 Uses the second-order finite difference of adjacent pixels to estimate noise
 (Stoehr et al., 2008, "DER_SNR: A Simple & General Spectroscopic Signal-to-Noise

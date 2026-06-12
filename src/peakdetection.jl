@@ -51,8 +51,11 @@ end
 """
     find_peaks(y; kwargs...) -> Vector{PeakInfo}
     find_peaks(x, y; kwargs...) -> Vector{PeakInfo}
+    find_peaks(spec; kwargs...) -> Vector{PeakInfo}
 
 Find peaks in spectroscopic data.
+
+The `spec` form accepts any 1D `AbstractSpectroscopyData` (uses `xdata`/`ydata`).
 
 # Keyword Arguments
 - `min_prominence::Real=0.05` — Minimum prominence as fraction of data range
