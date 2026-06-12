@@ -195,6 +195,79 @@ Random.seed!(42)
         @test_throws ErrorException matrix[λ=800, t=1.0]
     end
 
+    @testset "Spectrum - construction" begin
+        @test Spectrum <: AbstractSpectroscopyData
+
+        # Plain construction, empty metadata
+        s = Spectrum([1500.0, 1501.0], [0.1, 0.2])
+        @test s.x == [1500.0, 1501.0]
+        @test s.y == [0.1, 0.2]
+        @test isempty(s.metadata)
+
+        # Inputs convert to Vector{Float64}
+        s_range = Spectrum(1500.0:1.0:1504.0, [1, 2, 3, 2, 1])
+        @test s_range.x isa Vector{Float64}
+        @test s_range.y isa Vector{Float64}
+
+        # kwargs constructor splats into metadata
+        s_kw = Spectrum([1.0, 2.0], [3.0, 4.0]; cavity_length=12e-4, mirror="Au")
+        @test s_kw.metadata[:cavity_length] == 12e-4
+        @test s_kw.metadata[:mirror] == "Au"
+
+        # Positional dict constructor
+        md = Dict{Symbol,Any}(:sample => "NH4SCN")
+        s_md = Spectrum([1.0, 2.0], [3.0, 4.0], md)
+        @test s_md.metadata[:sample] == "NH4SCN"
+
+        # Length mismatch throws
+        @test_throws ArgumentError Spectrum([1.0, 2.0], [1.0])
+    end
+
+    @testset "Spectrum - AbstractSpectroscopyData interface" begin
+        s = Spectrum(collect(1500.0:1.0:1504.0), [1.0, 2.0, 3.0, 2.0, 1.0])
+        @test xdata(s) == s.x
+        @test ydata(s) == s.y
+        @test zdata(s) === nothing
+        @test is_matrix(s) == false
+        @test npoints(s) == 5
+        @test signal(s) == s.y
+
+        # Label fallbacks: 1500-1504 detected as wavenumber
+        @test xlabel(s) == "Wavenumber (cm⁻¹)"
+        @test ylabel(s) == "Signal"
+
+        # nm-range x detected as wavelength
+        s_nm = Spectrum([500.0, 600.0], [1.0, 2.0])
+        @test xlabel(s_nm) == "Wavelength (nm)"
+
+        # Metadata labels win over detection
+        s_lbl = Spectrum([1.0, 2.0], [3.0, 4.0]; xlabel="Energy (eV)", ylabel="Counts")
+        @test xlabel(s_lbl) == "Energy (eV)"
+        @test ylabel(s_lbl) == "Counts"
+
+        # source_file / title from metadata
+        @test source_file(s) == ""
+        s_src = Spectrum([1.0, 2.0], [3.0, 4.0]; filename="a.csv")
+        @test source_file(s_src) == "a.csv"
+        @test title(s_src) == "a.csv"
+        s_src2 = Spectrum([1.0, 2.0], [3.0, 4.0]; source="b.csv")
+        @test source_file(s_src2) == "b.csv"
+    end
+
+    @testset "Spectrum - show" begin
+        s = Spectrum(collect(1500.0:1.0:1504.0), [1.0, 2.0, 3.0, 2.0, 1.0];
+                     sample="test", cavity_length=12e-4)
+        @test occursin("Spectrum", sprint(show, s))
+        @test occursin("5 points", sprint(show, s))
+        long = sprint(show, MIME("text/plain"), s)
+        @test occursin("Points", long)
+        @test occursin("sample", long)
+        # Empty spectrum must not error
+        s_empty = Spectrum(Float64[], Float64[])
+        @test occursin("0 points", sprint(show, s_empty))
+        @test sprint(show, MIME("text/plain"), s_empty) isa String
+    end
+
     @testset "fit_peaks with raw vectors" begin
         # Synthetic single lorentzian peak
         x = collect(1900.0:0.5:2200.0)

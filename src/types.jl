@@ -1108,6 +1108,100 @@ function Base.show(io::IO, ::MIME"text/plain", g::GatedSpectrum)
 end
 
 # =============================================================================
+# Spectrum: generic 1D steady-state spectrum
+# =============================================================================
+
+"""
+    Spectrum <: AbstractSpectroscopyData
+
+    Spectrum(x, y)
+    Spectrum(x, y, metadata::Dict{Symbol,Any})
+    Spectrum(x, y; metadata...)
+
+Generic 1D steady-state spectrum: signal versus a spectral axis.
+
+Covers FTIR, Raman, UV-Vis, photoluminescence, cavity transmission, and any
+other steady-state 1D data. Axis semantics live in `metadata`:
+
+- `:xlabel` — x-axis display label (default: detected from the x range,
+  `"Wavenumber (cm⁻¹)"` or `"Wavelength (nm)"`)
+- `:ylabel` — y-axis display label (default: `"Signal"`)
+- `:filename` / `:source` — source file for [`source_file`](@ref)
+- `:cavity_length` — picked up as the default cavity length by
+  `fit_cavity_spectrum` (cavity-fitting tools; convention reserved here)
+
+# Fields
+- `x::Vector{Float64}`: Spectral axis
+- `y::Vector{Float64}`: Signal
+- `metadata::Dict{Symbol,Any}`: Additional info
+
+# Examples
+```julia
+spec = Spectrum(nu, T)
+spec = Spectrum(nu, T; mirror="Au", angle=10, cavity_length=12e-4)
+spec.metadata[:mirror]
+```
+"""
+struct Spectrum <: AbstractSpectroscopyData
+    x::Vector{Float64}
+    y::Vector{Float64}
+    metadata::Dict{Symbol,Any}
+
+    function Spectrum(x::AbstractVector{<:Real}, y::AbstractVector{<:Real},
+                      metadata::AbstractDict)
+        length(x) == length(y) || throw(ArgumentError(
+            "Spectrum: x and y must have equal length; " *
+            "got $(length(x)) x points and $(length(y)) y points"))
+        new(Float64.(x), Float64.(y), Dict{Symbol,Any}(metadata))
+    end
+end
+
+function Spectrum(x::AbstractVector{<:Real}, y::AbstractVector{<:Real}; metadata...)
+    md = Dict{Symbol,Any}(Symbol(k) => v for (k, v) in metadata)
+    return Spectrum(x, y, md)
+end
+
+# AbstractSpectroscopyData interface
+xdata(s::Spectrum) = s.x
+ydata(s::Spectrum) = s.y
+function xlabel(s::Spectrum)
+    lbl = get(s.metadata, :xlabel, nothing)
+    isnothing(lbl) || return String(lbl)
+    return _detect_spectral_unit(s.x) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
+end
+ylabel(s::Spectrum) = String(get(s.metadata, :ylabel, "Signal"))
+source_file(s::Spectrum) = get(s.metadata, :filename, get(s.metadata, :source, ""))
+
+"""
+    signal(s::Spectrum) -> Vector{Float64}
+
+Return the signal.
+"""
+signal(s::Spectrum) = s.y
+
+function Base.show(io::IO, s::Spectrum)
+    n = length(s.x)
+    range = isempty(s.x) ? "" :
+        ", $(round(minimum(s.x), digits=1)) to $(round(maximum(s.x), digits=1))"
+    print(io, "Spectrum: $n points$range")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", s::Spectrum)
+    println(io, "Spectrum")
+    println(io, "  Points:  $(length(s.x))")
+    if !isempty(s.x)
+        println(io, "  X:       $(xlabel(s)), $(round(minimum(s.x), digits=1)) to $(round(maximum(s.x), digits=1))")
+    end
+    println(io, "  Y:       $(ylabel(s))")
+    for key in (:sample, :mirror, :cavity_length, :angle)
+        val = get(s.metadata, key, nothing)
+        !isnothing(val) && println(io, "  $key: $val")
+    end
+    src = source_file(s)
+    !isempty(src) && println(io, "  Source:  $src")
+end
+
+# =============================================================================
 # Global fitting result
 # =============================================================================
 
