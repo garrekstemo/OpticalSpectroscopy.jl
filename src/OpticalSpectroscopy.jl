@@ -2,7 +2,9 @@
 OpticalSpectroscopy.jl — General-purpose spectroscopy analysis toolkit.
 
 Provides data types, fitting routines, baseline correction, peak detection,
-unit conversions, and utility functions for spectroscopic data analysis.
+unit conversions, and utility functions for spectroscopic data analysis,
+plus cavity & polariton analysis (Fabry-Pérot transmittance, coupled-oscillator
+dispersion fitting, Hopfield coefficients).
 
 Extracted from QPS.jl to serve as a standalone, reusable foundation.
 """
@@ -33,6 +35,7 @@ include("transforms.jl")
 include("peakdetection.jl")
 include("peakfitting.jl")
 include("fitting.jl")
+include("cavity.jl")
 include("chirp.jl")
 include("plmap.jl")
 include("decomposition.jl")
@@ -79,6 +82,16 @@ export fit_peaks, predict_peak, predict_baseline
 export fit_ta_spectrum
 export report, format_results, polynomial
 export mean_lifetime
+
+# ==========================================================================
+# Exports — Cavity & polariton spectroscopy
+# ==========================================================================
+export cavity_transmittance, compute_cavity_transmittance
+export refractive_index, extinction_coeff
+export cavity_mode_energy, polariton_branches, polariton_eigenvalues
+export hopfield_coefficients
+export CavityFitResult, DispersionFitResult
+export fit_cavity_spectrum, fit_dispersion
 
 # ==========================================================================
 # Exports — Chirp correction
