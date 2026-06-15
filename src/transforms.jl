@@ -71,6 +71,18 @@ function kubelka_munk(R)
 end
 
 """
+    kubelka_munk(s::Spectrum) -> Spectrum
+
+Kubelka-Munk transform of a reflectance [`Spectrum`](@ref). Sets
+`metadata[:ylabel] = "F(R)"` on the result, overwriting any prior value.
+"""
+function kubelka_munk(s::Spectrum)
+    md = copy(s.metadata)
+    md[:ylabel] = "F(R)"
+    return Spectrum(s.x, kubelka_munk.(s.y), md)
+end
+
+"""
     tauc_plot(energy, absorption; gap_type=:direct, fit_range=nothing)
 
 Construct a Tauc plot for optical bandgap determination.
@@ -184,6 +196,14 @@ function snv(y::AbstractVector)
     s < eps(Float64) && error("Cannot SNV-normalize: standard deviation is near zero")
     return (y .- m) ./ s
 end
+
+"""
+    snv(s::Spectrum) -> Spectrum
+
+Standard normal variate transform of a [`Spectrum`](@ref). Returns a new
+`Spectrum` with shallow-copied metadata.
+"""
+snv(s::Spectrum) = Spectrum(s.x, snv(s.y), copy(s.metadata))
 
 """
     beer_lambert(A, l)

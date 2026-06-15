@@ -39,6 +39,18 @@ function transmittance_to_absorbance(T::AbstractVector; percent::Bool=false)
 end
 
 """
+    transmittance_to_absorbance(s::Spectrum; percent=false) -> Spectrum
+
+Convert a transmittance [`Spectrum`](@ref) to absorbance. Sets
+`metadata[:ylabel] = "Absorbance"` on the result, overwriting any prior value.
+"""
+function transmittance_to_absorbance(s::Spectrum; percent::Bool=false)
+    md = copy(s.metadata)
+    md[:ylabel] = "Absorbance"
+    return Spectrum(s.x, transmittance_to_absorbance(s.y; percent=percent), md)
+end
+
+"""
     absorbance_to_transmittance(A; percent=false)
 
 Convert absorbance to transmittance: `T = 10^(-A)`.
@@ -50,6 +62,19 @@ end
 
 function absorbance_to_transmittance(A::AbstractVector; percent::Bool=false)
     return absorbance_to_transmittance.(A; percent=percent)
+end
+
+"""
+    absorbance_to_transmittance(s::Spectrum; percent=false) -> Spectrum
+
+Convert an absorbance [`Spectrum`](@ref) to transmittance. Sets
+`metadata[:ylabel]` to `"Transmittance"` (or `"Transmittance (%)"` when
+`percent=true`) on the result, overwriting any prior value.
+"""
+function absorbance_to_transmittance(s::Spectrum; percent::Bool=false)
+    md = copy(s.metadata)
+    md[:ylabel] = percent ? "Transmittance (%)" : "Transmittance"
+    return Spectrum(s.x, absorbance_to_transmittance(s.y; percent=percent), md)
 end
 
 # ============================================================================
@@ -74,6 +99,7 @@ end
 # Typed dispatch: AbstractSpectroscopyData → xdata/ydata interface
 function subtract_spectrum(sample::AbstractSpectroscopyData,
                            reference::AbstractSpectroscopyData; kwargs...)
+    _check_1d(sample, "subtract_spectrum"); _check_1d(reference, "subtract_spectrum")
     subtract_spectrum((x=xdata(sample), y=ydata(sample)),
                       (x=xdata(reference), y=ydata(reference)); kwargs...)
 end
@@ -87,7 +113,7 @@ end
 
 Apply moving average smoothing to data.
 """
-function smooth_data(y; window=3)
+function smooth_data(y; window::Int=3)
     n = length(y)
     smoothed = similar(y)
     half_w = window ÷ 2
@@ -103,9 +129,22 @@ function smooth_data(y; window=3)
 end
 
 """
+    smooth_data(s::Spectrum; window=3) -> Spectrum
+
+Moving-average smoothing of a [`Spectrum`](@ref). Returns a new `Spectrum`
+with shallow-copied metadata.
+"""
+function smooth_data(s::Spectrum; window::Int=3)
+    return Spectrum(s.x, smooth_data(s.y; window=window), copy(s.metadata))
+end
+
+"""
     calc_fwhm(x, y; smooth_window=5)
+    calc_fwhm(spec; smooth_window=5)
 
 Calculate full width at half maximum (FWHM) of the dominant positive peak.
+
+The `spec` form accepts any 1D `AbstractSpectroscopyData` (uses `xdata`/`ydata`).
 """
 function calc_fwhm(x, y; smooth_window=5)
     y_smooth = smooth_window > 1 ? _sg_filter(y, smooth_window, 2).y : y
@@ -142,6 +181,12 @@ function calc_fwhm(x, y; smooth_window=5)
     )
 end
 
+# Generic dispatch: any 1D AbstractSpectroscopyData via the xdata/ydata interface
+function calc_fwhm(spec::AbstractSpectroscopyData; kwargs...)
+    _check_1d(spec, "calc_fwhm")
+    return calc_fwhm(xdata(spec), ydata(spec); kwargs...)
+end
+
 # ============================================================================
 # SPECTRAL MATH FUNCTIONS
 # ============================================================================
@@ -172,6 +217,16 @@ y_smooth = savitzky_golay_smooth(y_noisy; window=11, order=3)
 """
 function savitzky_golay_smooth(y::AbstractVector{<:Real}; window::Int=11, order::Int=3)
     return _sg_filter(y, window, order).y
+end
+
+"""
+    savitzky_golay_smooth(s::Spectrum; window=11, order=3) -> Spectrum
+
+Savitzky-Golay smoothing of a [`Spectrum`](@ref). Returns a new `Spectrum`
+with shallow-copied metadata.
+"""
+function savitzky_golay_smooth(s::Spectrum; window::Int=11, order::Int=3)
+    return Spectrum(s.x, savitzky_golay_smooth(s.y; window=window, order=order), copy(s.metadata))
 end
 
 """
@@ -215,10 +270,24 @@ function derivative(x::AbstractVector{<:Real}, y::AbstractVector{<:Real};
 end
 
 """
+    derivative(s::Spectrum; order=1, window=11, poly_order=3) -> Spectrum
+
+Savitzky-Golay derivative of a [`Spectrum`](@ref), scaled by the x-spacing.
+Returns a new `Spectrum` with shallow-copied metadata.
+"""
+function derivative(s::Spectrum; order::Int=1, window::Int=11, poly_order::Int=3)
+    return Spectrum(s.x, derivative(s.x, s.y; order=order, window=window, poly_order=poly_order),
+                    copy(s.metadata))
+end
+
+"""
     band_area(x, y, x_min, x_max)
+    band_area(spec, x_min, x_max)
 
 Compute the integrated area under a spectrum within a given range using
 trapezoidal integration.
+
+The `spec` form accepts any 1D `AbstractSpectroscopyData` (uses `xdata`/`ydata`).
 
 # Arguments
 - `x::AbstractVector{<:Real}`: x-axis values (e.g., wavenumber, wavelength).
@@ -251,6 +320,12 @@ function band_area(x::AbstractVector{<:Real}, y::AbstractVector{<:Real},
     return area
 end
 
+# Generic dispatch: any 1D AbstractSpectroscopyData via the xdata/ydata interface
+function band_area(spec::AbstractSpectroscopyData, x_min::Real, x_max::Real)
+    _check_1d(spec, "band_area")
+    return band_area(xdata(spec), ydata(spec), x_min, x_max)
+end
+
 """
     normalize_area(x, y)
 
@@ -275,6 +350,16 @@ function normalize_area(x::AbstractVector{<:Real}, y::AbstractVector{<:Real})
     abs(total) < eps(Float64) && throw(ArgumentError(
         "Total area is zero; cannot normalize"))
     return Float64.(y ./ total)
+end
+
+"""
+    normalize_area(s::Spectrum) -> Spectrum
+
+Normalize a [`Spectrum`](@ref) to unit integrated area. Returns a new
+`Spectrum` with shallow-copied metadata.
+"""
+function normalize_area(s::Spectrum)
+    return Spectrum(s.x, normalize_area(s.x, s.y), copy(s.metadata))
 end
 
 """
@@ -317,9 +402,23 @@ function normalize_to_peak(x::AbstractVector{<:Real}, y::AbstractVector{<:Real},
 end
 
 """
+    normalize_to_peak(s::Spectrum, position; tolerance=5.0) -> Spectrum
+
+Normalize a [`Spectrum`](@ref) to the intensity at `position`. Returns a new
+`Spectrum` with shallow-copied metadata.
+"""
+function normalize_to_peak(s::Spectrum, position::Real; tolerance::Real=5.0)
+    return Spectrum(s.x, normalize_to_peak(s.x, s.y, position; tolerance=tolerance),
+                    copy(s.metadata))
+end
+
+"""
     estimate_snr(y)
+    estimate_snr(spec)
 
 Estimate the signal-to-noise ratio using the DER-SNR method.
+
+The `spec` form accepts any 1D `AbstractSpectroscopyData` (signal comes from `ydata`).
 
 Uses the second-order finite difference of adjacent pixels to estimate noise
 (Stoehr et al., 2008, "DER_SNR: A Simple & General Spectroscopic Signal-to-Noise
@@ -351,6 +450,12 @@ function estimate_snr(y::AbstractVector{<:Real})
     signal = median(y)
     snr = noise > 0 ? signal / noise : Inf
     return (snr=snr, signal=signal, noise=noise)
+end
+
+# Generic dispatch: any 1D AbstractSpectroscopyData via the xdata/ydata interface
+function estimate_snr(spec::AbstractSpectroscopyData)
+    _check_1d(spec, "estimate_snr")
+    return estimate_snr(ydata(spec))
 end
 
 # ============================================================================
@@ -437,15 +542,88 @@ function interpolate_spectrum(x, y, new_x)
     return itp.(new_x)
 end
 
+"""
+    interpolate_spectrum(s::Spectrum, new_x) -> Spectrum
+
+Resample a spectrum onto `new_x` by linear interpolation. Returns a new
+`Spectrum` with shallow-copied metadata. The order of `new_x` is preserved
+in the returned `Spectrum`.
+"""
+function interpolate_spectrum(s::Spectrum, new_x::AbstractVector{<:Real})
+    return Spectrum(collect(Float64.(new_x)), interpolate_spectrum(s.x, s.y, new_x),
+                    copy(s.metadata))
+end
+
 # Typed dispatches for AbstractSpectroscopyData
 function add_spectra(a::AbstractSpectroscopyData, b::AbstractSpectroscopyData; kwargs...)
+    _check_1d(a, "add_spectra"); _check_1d(b, "add_spectra")
     add_spectra((x=xdata(a), y=ydata(a)), (x=xdata(b), y=ydata(b)); kwargs...)
 end
 
 function divide_spectra(a::AbstractSpectroscopyData, b::AbstractSpectroscopyData; kwargs...)
+    _check_1d(a, "divide_spectra"); _check_1d(b, "divide_spectra")
     divide_spectra((x=xdata(a), y=ydata(a)), (x=xdata(b), y=ydata(b)); kwargs...)
 end
 
 function multiply_spectrum(spec::AbstractSpectroscopyData, factor::Real)
+    _check_1d(spec, "multiply_spectrum")
     multiply_spectrum((x=xdata(spec), y=ydata(spec)), factor)
+end
+
+# Spectrum-in → Spectrum-out arithmetic. The result keeps the first
+# argument's metadata (shallow-copied).
+
+"""
+    subtract_spectrum(s::Spectrum, ref::Spectrum; scale=1.0, interpolate=false) -> Spectrum
+
+Subtract `ref` from `s`. Returns a new `Spectrum` carrying `s`'s
+shallow-copied metadata.
+"""
+function subtract_spectrum(s::Spectrum, ref::Spectrum; scale::Real=1.0, interpolate=false)
+    res = subtract_spectrum((x=s.x, y=s.y), (x=ref.x, y=ref.y); scale=scale, interpolate=interpolate)
+    return Spectrum(res.x, res.y, copy(s.metadata))
+end
+
+"""
+    add_spectra(a::Spectrum, b::Spectrum; interpolate=false) -> Spectrum
+
+Add two spectra. Returns a new `Spectrum` carrying `a`'s shallow-copied metadata.
+"""
+function add_spectra(a::Spectrum, b::Spectrum; interpolate=false)
+    res = add_spectra((x=a.x, y=a.y), (x=b.x, y=b.y); interpolate=interpolate)
+    return Spectrum(res.x, res.y, copy(a.metadata))
+end
+
+"""
+    divide_spectra(a::Spectrum, b::Spectrum; interpolate=false) -> Spectrum
+
+Divide `a` by `b` element-wise. Returns a new `Spectrum` carrying `a`'s
+shallow-copied metadata.
+"""
+function divide_spectra(a::Spectrum, b::Spectrum; interpolate=false)
+    res = divide_spectra((x=a.x, y=a.y), (x=b.x, y=b.y); interpolate=interpolate)
+    return Spectrum(res.x, res.y, copy(a.metadata))
+end
+
+"""
+    multiply_spectrum(s::Spectrum, factor::Real) -> Spectrum
+
+Scale a spectrum by a constant. Returns a new `Spectrum` with shallow-copied
+metadata.
+"""
+function multiply_spectrum(s::Spectrum, factor::Real)
+    res = multiply_spectrum((x=s.x, y=s.y), factor)
+    return Spectrum(res.x, res.y, copy(s.metadata))
+end
+
+"""
+    average_spectra(specs::Spectrum...; interpolate=false) -> Spectrum
+
+Point-wise average. Returns a new `Spectrum` carrying the first spectrum's
+shallow-copied metadata.
+"""
+function average_spectra(specs::Spectrum...; interpolate=false)
+    isempty(specs) && throw(ArgumentError("average_spectra requires at least one spectrum"))
+    res = average_spectra(map(s -> (x=s.x, y=s.y), specs)...; interpolate=interpolate)
+    return Spectrum(res.x, res.y, copy(specs[1].metadata))
 end

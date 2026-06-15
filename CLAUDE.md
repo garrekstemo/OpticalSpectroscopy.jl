@@ -41,9 +41,12 @@ General-purpose spectroscopy analysis tools for Julia. Public, registerable pack
 
 ```
 AbstractSpectroscopyData (root interface)
+├── Spectrum            (generic 1D steady-state spectrum: signal vs spectral axis)
 ├── KineticTrace        (kinetics: signal vs time at fixed wavelength)
 ├── TASpectrum          (spectrum: signal vs wavenumber at fixed time)
-└── TimeResolvedMatrix  (2D: time × wavelength heatmap)
+├── GatedSpectrum       (spectrum extracted from a time window)
+├── TimeResolvedMatrix  (2D: time × wavelength heatmap)
+└── PLMap               (2D: spatial PL/Raman map)
 ```
 
 `AnnotatedSpectrum` (with metadata, FTIR/Raman subtypes) is defined in QPSTools.jl, not here.

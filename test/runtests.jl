@@ -195,6 +195,285 @@ Random.seed!(42)
         @test_throws ErrorException matrix[λ=800, t=1.0]
     end
 
+    @testset "Spectrum - construction" begin
+        @test Spectrum <: AbstractSpectroscopyData
+
+        # Plain construction, empty metadata
+        s = Spectrum([1500.0, 1501.0], [0.1, 0.2])
+        @test s.x == [1500.0, 1501.0]
+        @test s.y == [0.1, 0.2]
+        @test isempty(s.metadata)
+
+        # Inputs convert to Vector{Float64}
+        s_range = Spectrum(1500.0:1.0:1504.0, [1, 2, 3, 2, 1])
+        @test s_range.x isa Vector{Float64}
+        @test s_range.y isa Vector{Float64}
+
+        # kwargs constructor splats into metadata
+        s_kw = Spectrum([1.0, 2.0], [3.0, 4.0]; cavity_length=12e-4, mirror="Au")
+        @test s_kw.metadata[:cavity_length] == 12e-4
+        @test s_kw.metadata[:mirror] == "Au"
+
+        # Positional dict constructor
+        md = Dict{Symbol,Any}(:sample => "NH4SCN")
+        s_md = Spectrum([1.0, 2.0], [3.0, 4.0], md)
+        @test s_md.metadata[:sample] == "NH4SCN"
+
+        # String-keyed dict (lab layer: JASCO/QPSTools Dict{String,Any}) is
+        # accepted and symbolized
+        s_str = Spectrum([1.0, 2.0], [3.0, 4.0],
+                         Dict{String,Any}("sample" => "NH4SCN", "cavity_length" => 12e-4))
+        @test s_str.metadata[:sample] == "NH4SCN"
+        @test s_str.metadata[:cavity_length] == 12e-4
+        @test keytype(s_str.metadata) == Symbol
+
+        # Int x data converts to Vector{Float64}
+        s_int_x = Spectrum([1500, 1501], [0.1, 0.2])
+        @test s_int_x.x isa Vector{Float64}
+
+        # Length mismatch throws
+        @test_throws ArgumentError Spectrum([1.0, 2.0], [1.0])
+    end
+
+    @testset "Spectrum - AbstractSpectroscopyData interface" begin
+        s = Spectrum(collect(1500.0:1.0:1504.0), [1.0, 2.0, 3.0, 2.0, 1.0])
+        @test xdata(s) == s.x
+        @test ydata(s) == s.y
+        @test zdata(s) === nothing
+        @test is_matrix(s) == false
+        @test npoints(s) == 5
+        @test signal(s) == s.y
+
+        # Label fallbacks: 1500-1504 detected as wavenumber
+        @test xlabel(s) == "Wavenumber (cm⁻¹)"
+        @test ylabel(s) == "Signal"
+
+        # nm-range x detected as wavelength
+        s_nm = Spectrum([500.0, 600.0], [1.0, 2.0])
+        @test xlabel(s_nm) == "Wavelength (nm)"
+
+        # Metadata labels win over detection
+        s_lbl = Spectrum([1.0, 2.0], [3.0, 4.0]; xlabel="Energy (eV)", ylabel="Counts")
+        @test xlabel(s_lbl) == "Energy (eV)"
+        @test ylabel(s_lbl) == "Counts"
+
+        # source_file / title from metadata
+        @test source_file(s) == ""
+        s_src = Spectrum([1.0, 2.0], [3.0, 4.0]; filename="a.csv")
+        @test source_file(s_src) == "a.csv"
+        @test title(s_src) == "a.csv"
+        s_src2 = Spectrum([1.0, 2.0], [3.0, 4.0]; source="b.csv")
+        @test source_file(s_src2) == "b.csv"
+    end
+
+    @testset "Spectrum - show" begin
+        s = Spectrum(collect(1500.0:1.0:1504.0), [1.0, 2.0, 3.0, 2.0, 1.0];
+                     sample="test", cavity_length=12e-4)
+        @test occursin("Spectrum", sprint(show, s))
+        @test occursin("5 points", sprint(show, s))
+        @test occursin("cm⁻¹", sprint(show, s))
+        s_xlbl = Spectrum([1.0, 2.0], [3.0, 4.0]; xlabel="Energy (eV)")
+        @test !occursin("nm", sprint(show, s_xlbl))
+        long = sprint(show, MIME("text/plain"), s)
+        @test occursin("Points", long)
+        @test occursin("sample", long)
+        # Empty spectrum must not error
+        s_empty = Spectrum(Float64[], Float64[])
+        @test occursin("0 points", sprint(show, s_empty))
+        @test sprint(show, MIME("text/plain"), s_empty) isa String
+    end
+
+    @testset "Generic dispatches reject 2D data" begin
+        m = TimeResolvedMatrix([0.0, 1.0, 2.0], [700.0, 750.0], rand(3, 2))
+        @test_throws ArgumentError fit_peaks(m)
+        @test_throws ArgumentError fit_peaks(m, (700.0, 750.0))
+        @test_throws ArgumentError subtract_spectrum(m, m)
+        @test_throws ArgumentError add_spectra(m, m)
+        @test_throws ArgumentError divide_spectra(m, m)
+        @test_throws ArgumentError multiply_spectrum(m, 2.0)
+        p = PLMap(rand(2, 2), rand(2, 2, 3), [0.0, 1.0], [0.0, 1.0], [1.0, 2.0, 3.0])
+        @test_throws ArgumentError multiply_spectrum(p, 2.0)
+    end
+
+    @testset "Generic analysis dispatches - Spectrum and family" begin
+        x = collect(400.0:0.5:800.0)
+        y = @. 100 * exp(-(x - 520)^2 / (2 * 10^2)) + 5
+        s = Spectrum(x, y)
+
+        # find_peaks
+        pks_typed = find_peaks(s)
+        pks_vec = find_peaks(x, y)
+        @test length(pks_typed) == length(pks_vec) == 1
+        @test pks_typed[1].position == pks_vec[1].position
+
+        # band_area
+        @test band_area(s, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
+
+        # calc_fwhm
+        @test calc_fwhm(s) == calc_fwhm(x, y)
+
+        # estimate_snr
+        @test estimate_snr(s) == estimate_snr(y)
+
+        # Works for other 1D family members too
+        g = GatedSpectrum(x, y)
+        @test find_peaks(g)[1].position == pks_vec[1].position
+        @test band_area(g, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
+
+        # KineticTrace and TASpectrum flow through the same generic methods
+        kt = KineticTrace(x, y)
+        @test estimate_snr(kt) == estimate_snr(y)
+        ta = TASpectrum(x, y)
+        @test band_area(ta, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
+
+        # 2D guard
+        m = TimeResolvedMatrix([0.0, 1.0], [700.0, 750.0], rand(2, 2))
+        @test_throws ArgumentError find_peaks(m)
+        @test_throws ArgumentError band_area(m, 1.0, 2.0)
+        @test_throws ArgumentError calc_fwhm(m)
+        @test_throws ArgumentError estimate_snr(m)
+    end
+
+    @testset "Spectrum transformations - smoothing and normalization" begin
+        x = collect(400.0:1.0:800.0)
+        y = @. 50 * exp(-(x - 520)^2 / (2 * 10^2)) + 0.5
+        s = Spectrum(x, y; sample="test")
+
+        sm = smooth_data(s; window=5)
+        @test sm isa Spectrum
+        @test sm.x == s.x
+        @test sm.y ≈ smooth_data(y; window=5)
+        @test sm.metadata == s.metadata
+
+        # Metadata is copied, not aliased
+        sm.metadata[:extra] = 1
+        @test !haskey(s.metadata, :extra)
+
+        sg = savitzky_golay_smooth(s; window=11, order=3)
+        @test sg isa Spectrum
+        @test sg.y ≈ savitzky_golay_smooth(y; window=11, order=3)
+        sg.metadata[:extra2] = 1
+        @test !haskey(s.metadata, :extra2)
+
+        dv = derivative(s; order=1)
+        @test dv isa Spectrum
+        @test dv.y ≈ derivative(x, y; order=1)
+
+        na = normalize_area(s)
+        @test na isa Spectrum
+        @test na.y ≈ normalize_area(x, y)
+        @test band_area(na, 400.0, 800.0) ≈ 1.0
+
+        np = normalize_to_peak(s, 520.0)
+        @test np isa Spectrum
+        @test np.y ≈ normalize_to_peak(x, y, 520.0)
+    end
+
+    @testset "Spectrum transformations - transmittance/absorbance" begin
+        x = [1500.0, 1600.0]
+        s_t = Spectrum(x, [0.5, 0.1]; sample="test")
+
+        a = transmittance_to_absorbance(s_t)
+        @test a isa Spectrum
+        @test a.y ≈ transmittance_to_absorbance([0.5, 0.1])
+        @test a.metadata[:ylabel] == "Absorbance"
+        @test a.metadata[:sample] == "test"   # other keys preserved
+        @test !haskey(s_t.metadata, :ylabel)  # input untouched
+
+        t = absorbance_to_transmittance(a)
+        @test t isa Spectrum
+        @test t.y ≈ [0.5, 0.1]
+        @test t.metadata[:ylabel] == "Transmittance"
+
+        t_pct = absorbance_to_transmittance(a; percent=true)
+        @test t_pct.y ≈ [50.0, 10.0]
+        @test t_pct.metadata[:ylabel] == "Transmittance (%)"
+    end
+
+    @testset "Spectrum arithmetic returns Spectrum" begin
+        x = collect(1500.0:1.0:1599.0)
+        ya = @. 1.0 + 0.01 * (x - 1500)
+        yb = fill(0.5, length(x))
+        a = Spectrum(x, ya; sample="A")
+        b = Spectrum(x, yb; sample="B")
+
+        d = subtract_spectrum(a, b)
+        @test d isa Spectrum
+        @test d.y ≈ ya .- yb
+        @test d.metadata[:sample] == "A"   # first argument's metadata wins
+
+        sc = subtract_spectrum(a, b; scale=2.0)
+        @test sc.y ≈ ya .- 2.0 .* yb
+
+        su = add_spectra(a, b)
+        @test su isa Spectrum
+        @test su.y ≈ ya .+ yb
+        @test su.metadata[:sample] == "A"
+
+        q = divide_spectra(a, b)
+        @test q isa Spectrum
+        @test q.y ≈ ya ./ yb
+
+        m2 = multiply_spectrum(a, 2.0)
+        @test m2 isa Spectrum
+        @test m2.y ≈ 2.0 .* ya
+
+        av = average_spectra(a, b)
+        @test av isa Spectrum
+        @test av.y ≈ (ya .+ yb) ./ 2
+        @test av.metadata[:sample] == "A"
+
+        @test_throws ArgumentError average_spectra()
+
+        b_shift = Spectrum(x .+ 0.25, yb)
+        d_itp = subtract_spectrum(a, b_shift; interpolate=true)
+        @test d_itp isa Spectrum
+        @test d_itp.x == a.x
+
+        new_x = collect(1500.0:0.5:1599.0)
+        it = interpolate_spectrum(a, new_x)
+        @test it isa Spectrum
+        @test it.x == new_x
+        @test it.y ≈ interpolate_spectrum(x, ya, new_x)
+        @test it.metadata[:sample] == "A"
+
+        # Mixed family types still return NamedTuples (generic path)
+        g = GatedSpectrum(x, yb)
+        nt = subtract_spectrum(a, g)
+        @test nt isa NamedTuple
+        @test nt.y ≈ ya .- yb
+    end
+
+    @testset "Spectrum baseline correction and transforms" begin
+        x = collect(1000.0:1.0:1399.0)
+        y = @. 20 * exp(-(x - 1200)^2 / (2 * 15^2)) + 0.01 * (x - 1000) + 2
+        s = Spectrum(x, y; sample="test")
+
+        c = correct_baseline(s; method=:arpls)
+        @test c isa Spectrum
+        ref = correct_baseline(x, y; method=:arpls)
+        @test c.y ≈ ref.y
+        @test c.x == x
+        @test c.metadata[:sample] == "test"
+
+        # rubberband goes through the (x, y) branch
+        c_rb = correct_baseline(s; method=:rubberband)
+        @test c_rb isa Spectrum
+        @test c_rb.y ≈ correct_baseline(x, y; method=:rubberband).y
+
+        sv = snv(s)
+        @test sv isa Spectrum
+        @test sv.y ≈ snv(y)
+        @test sv.metadata == s.metadata
+
+        r = Spectrum([500.0, 600.0], [0.3, 0.6])
+        km = kubelka_munk(r)
+        @test km isa Spectrum
+        @test km.y ≈ kubelka_munk.([0.3, 0.6])
+        @test km.metadata[:ylabel] == "F(R)"
+        @test_throws ArgumentError kubelka_munk(Spectrum([500.0, 600.0], [0.3, 0.0]))
+    end
+
     @testset "fit_peaks with raw vectors" begin
         # Synthetic single lorentzian peak
         x = collect(1900.0:0.5:2200.0)
@@ -2850,6 +3129,8 @@ Random.seed!(42)
 
         spec = TASpectrum(x, y)
         @test lines(spec) isa Makie.FigureAxisPlot
+        steady = Spectrum(x, y; ylabel="Transmittance")
+        @test lines(steady) isa Makie.FigureAxisPlot
 
         fig1 = plot_fit(fit)
         @test fig1 isa Makie.Figure
