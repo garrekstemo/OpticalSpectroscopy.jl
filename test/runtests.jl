@@ -219,6 +219,14 @@ Random.seed!(42)
         s_md = Spectrum([1.0, 2.0], [3.0, 4.0], md)
         @test s_md.metadata[:sample] == "NH4SCN"
 
+        # String-keyed dict (lab layer: JASCO/QPSTools Dict{String,Any}) is
+        # accepted and symbolized
+        s_str = Spectrum([1.0, 2.0], [3.0, 4.0],
+                         Dict{String,Any}("sample" => "NH4SCN", "cavity_length" => 12e-4))
+        @test s_str.metadata[:sample] == "NH4SCN"
+        @test s_str.metadata[:cavity_length] == 12e-4
+        @test keytype(s_str.metadata) == Symbol
+
         # Int x data converts to Vector{Float64}
         s_int_x = Spectrum([1500, 1501], [0.1, 0.2])
         @test s_int_x.x isa Vector{Float64}

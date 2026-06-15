@@ -1138,6 +1138,11 @@ other steady-state 1D data. Axis semantics live in `metadata`:
 - `:cavity_length` — picked up as the default cavity length by
   `fit_cavity_spectrum` (cavity-fitting tools; convention reserved here)
 
+Metadata keys are stored as `Symbol`s. The positional-dict and keyword
+constructors both accept `String` keys (converted via `Symbol`), so a
+`Dict{String,Any}` from the lab layer (JASCO/QPSTools sample metadata) can be
+passed directly.
+
 # Fields
 - `x::Vector{Float64}`: Spectral axis
 - `y::Vector{Float64}`: Signal
@@ -1160,7 +1165,9 @@ struct Spectrum <: AbstractSpectroscopyData
         length(x) == length(y) || throw(ArgumentError(
             "Spectrum: x and y must have equal length; " *
             "got $(length(x)) x points and $(length(y)) y points"))
-        new(Float64.(x), Float64.(y), Dict{Symbol,Any}(metadata))
+        # Symbolize keys so String-keyed dicts (e.g. JASCO/QPSTools sample
+        # metadata, which are Dict{String,Any}) are accepted directly.
+        new(Float64.(x), Float64.(y), Dict{Symbol,Any}(Symbol(k) => v for (k, v) in metadata))
     end
 end
 
