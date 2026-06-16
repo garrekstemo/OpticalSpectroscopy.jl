@@ -23,7 +23,9 @@ using JSON
 import PhysicalConstants.CODATA2022: h, c_0, ħ
 using SpecialFunctions: gamma
 
-# Source files (order matters: types before functions that use them)
+# Source files (order matters: tokens (pure vocab) before types; types before
+# functions that use them)
+include("tokens.jl")
 include("types.jl")
 include("timeresolved.jl")
 include("units.jl")
@@ -44,6 +46,7 @@ include("cosmic_rays.jl")
 export AbstractSpectroscopyData
 export xdata, ydata, zdata, xlabel, ylabel, zlabel, is_matrix
 export source_file, npoints, title
+export axis_label
 export Spectrum, KineticTrace, TASpectrum, TimeResolvedMatrix, GatedSpectrum, SweepData
 export delay, signal, wavenumber, wavelength
 
