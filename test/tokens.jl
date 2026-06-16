@@ -23,4 +23,22 @@
         @test OpticalSpectroscopy._time_label(Dict{Symbol,Any}(), :time_unit) == "Time (ps)"
     end
 
+    @testset "is_canonical / validate_tokens" begin
+        @test is_canonical(:technique, :ftir)
+        @test !is_canonical(:technique, :nmr)
+        @test is_canonical(:quantity, :wavenumber)
+        @test is_canonical(:quantity, :absorbance)
+        @test !is_canonical(:quantity, :bogus)
+        @test is_canonical(:unit, :per_cm)
+        @test !is_canonical(:unit, :furlong)
+        @test !is_canonical(:nonsense_slot, :anything)
+
+        good = Dict{Symbol,Any}(:technique => :ftir, :xquantity => :wavenumber,
+                                :xunit => :per_cm, :yquantity => :absorbance, :yunit => :OD)
+        @test validate_tokens(good)
+        bad = Dict{Symbol,Any}(:xunit => :furlong)
+        @test (@test_logs (:warn,) validate_tokens(bad)) == false
+        @test validate_tokens(Dict{Symbol,Any}())
+    end
+
 end

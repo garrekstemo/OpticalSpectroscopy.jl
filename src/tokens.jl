@@ -112,3 +112,49 @@ to `:ps`.
 """
 _time_label(metadata::AbstractDict, unit_key::Symbol) =
     axis_label(:time, Symbol(get(metadata, unit_key, :ps)))
+
+# Validation (§8). Warns, never throws — out-of-vocabulary values are allowed.
+
+"""
+    is_canonical(slot::Symbol, value::Symbol) -> Bool
+
+Whether `value` is in the controlled vocabulary for `slot`. Slots: `:technique`,
+`:quantity` (axis or signal), `:unit`. Unknown slots return `false`.
+"""
+function is_canonical(slot::Symbol, value::Symbol)
+    slot === :technique && return value in TECHNIQUES
+    slot === :quantity  && return value in AXIS_QUANTITIES || value in SIGNAL_QUANTITIES
+    slot === :unit      && return value in UNITS
+    return false
+end
+
+const _RESERVED_TOKEN_SLOTS = (
+    (:technique, :technique),
+    (:xquantity, :quantity), (:yquantity, :quantity), (:signal_quantity, :quantity),
+    (:axis1_quantity, :quantity), (:axis2_quantity, :quantity), (:axis3_quantity, :quantity),
+    (:xunit, :unit), (:yunit, :unit), (:signal_unit, :unit),
+    (:axis1_unit, :unit), (:axis2_unit, :unit), (:axis3_unit, :unit),
+    (:time_unit, :unit), (:time_delay_unit, :unit), (:gate_unit, :unit),
+    (:fixed_coordinate_unit, :unit), (:position_unit, :unit),
+)
+
+"""
+    validate_tokens(metadata::AbstractDict) -> Bool
+
+Check reserved token values against the controlled vocabularies of §3. `@warn`s
+for each reserved key whose value is outside its vocabulary and returns `false`;
+returns `true` when all present reserved tokens are canonical. Never throws.
+"""
+function validate_tokens(metadata::AbstractDict)
+    ok = true
+    for (key, slot) in _RESERVED_TOKEN_SLOTS
+        haskey(metadata, key) || continue
+        value = metadata[key]
+        value isa Symbol || (value = Symbol(value))
+        if !is_canonical(slot, value)
+            @warn "Non-canonical metadata token" key value slot
+            ok = false
+        end
+    end
+    return ok
+end
