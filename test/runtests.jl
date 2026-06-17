@@ -371,6 +371,37 @@ Random.seed!(42)
         @test t_pct.metadata[:ylabel] == "Transmittance (%)"
     end
 
+    @testset "Spectrum T→A token-driven semantics" begin
+        # Scale inferred from the :yunit token (no explicit percent kwarg)
+        s_pct = Spectrum([1000.0, 2000.0, 3000.0], [95.0, 50.0, 10.0];
+                         yquantity=:transmittance, yunit=:percent)
+        a = transmittance_to_absorbance(s_pct)
+        @test a.y ≈ [-log10(0.95), -log10(0.50), 1.0]
+        @test a.metadata[:yquantity] == :absorbance
+        @test a.metadata[:yunit] == :OD
+
+        # Explicit percent overrides the token
+        @test transmittance_to_absorbance(s_pct; percent=false).y ≈ -log10.([95.0, 50.0, 10.0])
+
+        # :fraction token → fractional
+        s_frac = Spectrum([1000.0], [0.5]; yquantity=:transmittance, yunit=:fraction)
+        @test transmittance_to_absorbance(s_frac).y ≈ [-log10(0.5)]
+
+        # Nonpositive transmittance → NaN with a warning (saturated bands)
+        s_zero = Spectrum([1000.0], [0.0]; yquantity=:transmittance, yunit=:percent)
+        az = @test_logs (:warn, r"nonpositive") transmittance_to_absorbance(s_zero)
+        @test isnan(only(az.y))
+
+        # t→a on a non-transmittance spectrum is rejected (no silent guessing)
+        @test_throws ArgumentError transmittance_to_absorbance(a)
+
+        # Round trip back to %T flips the tokens
+        t = absorbance_to_transmittance(a; percent=true)
+        @test t.y ≈ [95.0, 50.0, 10.0]
+        @test t.metadata[:yquantity] == :transmittance
+        @test t.metadata[:yunit] == :percent
+    end
+
     @testset "Spectrum arithmetic returns Spectrum" begin
         x = collect(1500.0:1.0:1599.0)
         ya = @. 1.0 + 0.01 * (x - 1500)
