@@ -587,8 +587,7 @@ function fit_global(matrix::TimeResolvedMatrix; n_exp::Int=1, irf_width::Float64
         push!(actual_wavelengths, tr.wavelength)
     end
 
-    wl_unit = _detect_wavelength_unit(matrix)
-    labels = [string(round(wl, digits=1), " ", wl_unit) for wl in actual_wavelengths]
+    labels = [string(round(wl, digits=1)) for wl in actual_wavelengths]
 
     result = fit_global(traces; n_exp=n_exp, irf_width=irf_width, labels=labels)
 

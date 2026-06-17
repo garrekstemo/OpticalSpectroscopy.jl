@@ -886,8 +886,6 @@ function _detect_spectral_unit(wavelengths::AbstractVector{<:Real})
     (minval > 1200 && maxval < 5000) ? "cm⁻¹" : "nm"
 end
 
-_detect_wavelength_unit(m::TimeResolvedMatrix) = _detect_spectral_unit(m.wavelength)
-
 function Base.show(io::IO, m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
     tu = (u = Symbol(get(m.metadata, :time_unit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
