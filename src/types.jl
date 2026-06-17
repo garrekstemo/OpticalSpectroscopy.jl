@@ -814,12 +814,13 @@ KineticTrace.
 # Indexing
 ```julia
 matrix[λ=800]     # Extract KineticTrace at λ ≈ 800 nm
-matrix[t=1.0]     # Extract Spectrum at t ≈ 1.0 ps (pump-probe convention, fixed units)
+matrix[t=1.0]     # Extract Spectrum at t ≈ 1.0 ps (tagged with :time_delay)
 ```
 
-`matrix[t=...]` returns a `Spectrum` (pump-probe convention, wavenumber/wavelength
-axis with ΔA signal). For unit-aware time slices of generic time-resolved data,
-use [`spectral_slice`](@ref) instead.
+`matrix[t=...]` returns a `Spectrum` whose axis/signal labels derive from the
+matrix's tokens (honest `"x"`/`"Signal"` floor if absent), tagged with the slice's
+`:time_delay`. For a spectrum gated/integrated over a time window, use
+[`spectral_slice`](@ref) or [`integrate_time`](@ref).
 """
 struct TimeResolvedMatrix <: AbstractSpectroscopyData
     time::Vector{Float64}
@@ -879,7 +880,7 @@ xlabel(m::TimeResolvedMatrix) = _spectral_xlabel(m.metadata)
 ylabel(m::TimeResolvedMatrix) = _time_label(m.metadata, :time_unit)
 zlabel(m::TimeResolvedMatrix) = _signal_label(m.metadata)
 
-# Spectral axis unit heuristic shared by matrix and gated-spectrum types.
+# Spectral axis unit heuristic — opt-in only; the sole caller is guess_units! (no automatic call sites).
 function _detect_spectral_unit(wavelengths::AbstractVector{<:Real})
     isempty(wavelengths) && return "nm"
     minval, maxval = extrema(wavelengths)
