@@ -68,4 +68,25 @@
         @test OpticalSpectroscopy.CANONICAL_UNIT[:delta_absorbance] == :mOD
     end
 
+    @testset "Spectrum minimal-input path" begin
+        M = [10.0 100.0; 20.0 200.0; 30.0 300.0]
+        sm = Spectrum(M)
+        @test xdata(sm) == [10.0, 20.0, 30.0]
+        @test ydata(sm) == [100.0, 200.0, 300.0]
+        @test xlabel(sm) == "x"
+        @test_throws ArgumentError Spectrum(rand(3, 3))
+
+        sa = Spectrum([1.0, 2.0], [3.0, 4.0]; axis=:wavenumber)
+        @test sa.metadata[:xquantity] == :wavenumber
+        @test sa.metadata[:xunit] == :per_cm
+        @test xlabel(sa) == "Wavenumber (cm⁻¹)"
+
+        sa2 = Spectrum([1.0, 2.0], [3.0, 4.0]; axis=:wavelength, xunit=:um)
+        @test xlabel(sa2) == "Wavelength (µm)"
+
+        smt = Spectrum(M; axis=:wavelength, sample="demo")
+        @test xlabel(smt) == "Wavelength (nm)"
+        @test smt.metadata[:sample] == "demo"
+    end
+
 end

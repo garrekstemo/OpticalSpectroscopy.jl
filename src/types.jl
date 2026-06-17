@@ -1124,7 +1124,8 @@ end
 
     Spectrum(x, y)
     Spectrum(x, y, metadata::AbstractDict)
-    Spectrum(x, y; metadata...)
+    Spectrum(x, y; axis=:wavenumber, metadata...)
+    Spectrum(M::AbstractMatrix)
 
 Generic 1D steady-state spectrum: signal versus a spectral axis.
 
@@ -1177,9 +1178,28 @@ struct Spectrum <: AbstractSpectroscopyData
     end
 end
 
-function Spectrum(x::AbstractVector{<:Real}, y::AbstractVector{<:Real}; metadata...)
+function Spectrum(x::AbstractVector{<:Real}, y::AbstractVector{<:Real};
+                  axis::Union{Symbol,Nothing}=nothing, metadata...)
     md = Dict{Symbol,Any}(Symbol(k) => v for (k, v) in metadata)
+    if axis !== nothing
+        md[:xquantity] = axis
+        get!(md, :xunit, get(CANONICAL_UNIT, axis, :dimensionless))
+    end
     return Spectrum(x, y, md)
+end
+
+"""
+    Spectrum(M::AbstractMatrix)
+
+Build a `Spectrum` from an `N×2` matrix (column 1 = x, column 2 = y), so a plain
+row-column export goes straight in: `Spectrum(readdlm("homemade.txt"))`. Keyword
+arguments (`axis=`, metadata) are forwarded to the vector constructor.
+"""
+function Spectrum(M::AbstractMatrix{<:Real}; kwargs...)
+    size(M, 2) == 2 || throw(ArgumentError(
+        "Spectrum(M): expected an N×2 matrix (column 1 = x, column 2 = y); " *
+        "got size $(size(M))"))
+    return Spectrum(M[:, 1], M[:, 2]; kwargs...)
 end
 
 # AbstractSpectroscopyData interface
