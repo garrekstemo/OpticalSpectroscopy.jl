@@ -299,7 +299,7 @@ Random.seed!(42)
         @test estimate_snr(s) == estimate_snr(y)
 
         # Works for other 1D family members too
-        g = GatedSpectrum(x, y)
+        g = Spectrum(x, y)
         @test find_peaks(g)[1].position == pks_vec[1].position
         @test band_area(g, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
 
@@ -419,7 +419,7 @@ Random.seed!(42)
         @test it.metadata[:sample] == "A"
 
         # Mixed family types still return NamedTuples (generic path)
-        g = GatedSpectrum(x, yb)
+        g = Spectrum(x, yb)
         nt = subtract_spectrum(a, g)
         @test nt isa NamedTuple
         @test nt.y ≈ ya .- yb
@@ -3182,7 +3182,7 @@ Random.seed!(42)
         data = [1.0 2.0 3.0;
                 4.0 5.0 6.0;
                 7.0 8.0 9.0]   # rows = time, cols = wavelength
-        md = Dict{Symbol,Any}(:signal_label => "Counts", :time_unit => "ns")
+        md = Dict{Symbol,Any}(:yquantity => :intensity, :yunit => :counts, :time_unit => :ns)
         m = TimeResolvedMatrix(t, wl, data; metadata=md)
 
         # nearest single column
@@ -3190,7 +3190,8 @@ Random.seed!(42)
         @test tr isa KineticTrace
         @test tr.signal == [2.0, 5.0, 8.0]
         @test tr.wavelength == 510.0
-        @test tr.metadata[:signal_label] == "Counts"
+        @test tr.metadata[:yquantity] == :intensity      # signal token inherited
+        @test xlabel(tr) == "Time (ns)"                  # :time_unit remapped to :xunit
 
         # band mean over all three columns (510 ± 10 → [500, 520])
         tr_band = kinetic_trace(m; wavelength=510.0, band=20.0)
@@ -3198,35 +3199,40 @@ Random.seed!(42)
         @test tr_band.wavelength == 510.0
         @test tr_band.metadata[:band] == 20.0
         @test !haskey(tr.metadata, :band)
-        @test integrate_time(m).metadata[:signal_label] == "Counts"
+        @test integrate_time(m).metadata[:yquantity] == :intensity
         @test_throws ArgumentError kinetic_trace(m; wavelength=NaN)
 
-        # empty band falls back to nearest column (deterministic: argmin ties break to first)
+        # empty band falls back to nearest column
         tr_fb = kinetic_trace(m; wavelength=505.0, band=2.0)
         @test tr_fb.signal == [1.0, 4.0, 7.0]
         @test tr_fb.wavelength == 500.0
 
-        # nearest single row
+        # nearest single row → Spectrum with gate tokens
         sp = spectral_slice(m; time=1.2)
-        @test sp isa GatedSpectrum
-        @test sp.signal == [4.0, 5.0, 6.0]
-        @test sp.t_range == (1.0, 1.0)
-        @test sp.metadata[:time_unit] == "ns"
+        @test sp isa Spectrum
+        @test sp.y == [4.0, 5.0, 6.0]
+        @test sp.metadata[:gate_start] == 1.0
+        @test sp.metadata[:gate_end] == 1.0
+        @test sp.metadata[:gate_unit] == :ns
+        @test zlabel(m) == "Intensity (counts)"
 
-        # gated mean over rows 2:3 (1.5 ± 1 → [0.5, 2.5])
+        # gated mean over rows 2:3
         sp_win = spectral_slice(m; time=1.5, window=2.0)
-        @test sp_win.signal == [5.5, 6.5, 7.5]
-        @test sp_win.t_range == (1.0, 2.0)
+        @test sp_win.y == [5.5, 6.5, 7.5]
+        @test sp_win.metadata[:gate_start] == 1.0
+        @test sp_win.metadata[:gate_end] == 2.0
 
         # time-integrated spectrum (sum)
         g = integrate_time(m)
-        @test g isa GatedSpectrum
-        @test g.signal == [12.0, 15.0, 18.0]
-        @test g.t_range == (0.0, 2.0)
+        @test g isa Spectrum
+        @test g.y == [12.0, 15.0, 18.0]
+        @test g.metadata[:gate_start] == 0.0
+        @test g.metadata[:gate_end] == 2.0
 
         g2 = integrate_time(m; t_range=(1.0, 2.0))
-        @test g2.signal == [11.0, 13.0, 15.0]
-        @test g2.t_range == (1.0, 2.0)
+        @test g2.y == [11.0, 13.0, 15.0]
+        @test g2.metadata[:gate_start] == 1.0
+        @test g2.metadata[:gate_end] == 2.0
         @test_throws ArgumentError integrate_time(m; t_range=(10.0, 20.0))
 
         # KineticTrace extracted from a matrix carries :source, not :filename;

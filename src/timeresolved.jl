@@ -16,14 +16,14 @@ The trace inherits the matrix metadata, plus `:band` when band > 0.
 function kinetic_trace(m::TimeResolvedMatrix; wavelength::Real, band::Real=0.0)
     cols = _axis_window(m.wavelength, wavelength, band)
     sig = vec(mean(view(m.data, :, cols), dims=2))
-    md = copy(m.metadata)
+    md = _trace_metadata(m)
     band > 0 && (md[:band] = float(band))
     return KineticTrace(copy(m.time), sig;
                         wavelength=mean(view(m.wavelength, cols)), metadata=md)
 end
 
 """
-    spectral_slice(m::TimeResolvedMatrix; time, window=0.0) -> GatedSpectrum
+    spectral_slice(m::TimeResolvedMatrix; time, window=0.0) -> Spectrum
 
 Extract the spectrum at `time`, averaged over `time ± window/2` (gated mean).
 
@@ -34,12 +34,11 @@ function spectral_slice(m::TimeResolvedMatrix; time::Real, window::Real=0.0)
     rows = _axis_window(m.time, time, window)
     sig = vec(mean(view(m.data, rows, :), dims=1))
     t_lo, t_hi = extrema(view(m.time, rows))
-    return GatedSpectrum(copy(m.wavelength), sig;
-                         t_range=(t_lo, t_hi), metadata=copy(m.metadata))
+    return Spectrum(copy(m.wavelength), sig, _gated_metadata(m, t_lo, t_hi))
 end
 
 """
-    integrate_time(m::TimeResolvedMatrix; t_range=nothing) -> GatedSpectrum
+    integrate_time(m::TimeResolvedMatrix; t_range=nothing) -> Spectrum
 
 Time-integrated spectrum: sum over the time axis (preserves total counts),
 optionally restricted to `t_range = (t_lo, t_hi)`.
@@ -55,8 +54,17 @@ function integrate_time(m::TimeResolvedMatrix; t_range::Union{Nothing,NTuple{2,R
     end
     sig = vec(sum(view(m.data, rows, :), dims=1))
     t_lo, t_hi = extrema(view(m.time, rows))
-    return GatedSpectrum(copy(m.wavelength), sig;
-                         t_range=(t_lo, t_hi), metadata=copy(m.metadata))
+    return Spectrum(copy(m.wavelength), sig, _gated_metadata(m, t_lo, t_hi))
+end
+
+# Spectral slice inherits the matrix's spectral + signal tokens; the time window
+# becomes flat :gate_start / :gate_end (+ :gate_unit) tokens (no compound values).
+function _gated_metadata(m::TimeResolvedMatrix, t_lo::Real, t_hi::Real)
+    md = copy(m.metadata)
+    md[:gate_start] = float(t_lo)
+    md[:gate_end] = float(t_hi)
+    haskey(m.metadata, :time_unit) && (md[:gate_unit] = Symbol(m.metadata[:time_unit]))
+    return md
 end
 
 """
