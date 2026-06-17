@@ -31,6 +31,7 @@ makedocs(
             "Baseline Correction" => "reference/baseline.md",
             "Preprocessing" => "reference/preprocessing.md",
             "PL / Raman Mapping" => "reference/plmap.md",
+            "Cavity & Polaritons" => "reference/cavity.md",
             "Additional API" => "api.md",
         ],
         "Explanation" => [

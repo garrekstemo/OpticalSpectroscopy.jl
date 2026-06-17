@@ -3403,5 +3403,6 @@ Random.seed!(42)
         @test_throws ArgumentError fit_lifetime_spectrum(m; n_exp=0)
     end
 
+    include("test_cavity.jl")
     include("tokens.jl")
 end
