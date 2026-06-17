@@ -874,8 +874,10 @@ end
 
 Two-dimensional time-resolved spectroscopy data (time × wavelength).
 
-Covers transient absorption (ΔA) and streak-camera PL (counts). Signal
-semantics live in `metadata` (see `:signal_label`, `:time_unit`).
+Covers transient absorption (ΔA) and streak-camera PL (counts). Spectral
+axis tokens :xquantity/:xunit; signal tokens :yquantity/:yunit; time-axis
+unit :time_unit. matrix[t=…] returns a Spectrum; matrix[λ=…] returns a
+KineticTrace.
 
 # Fields
 - `time::Vector{Float64}`: Time axis
@@ -947,10 +949,9 @@ Return the signal matrix (n_time × n_wavelength).
 """
 signal(m::TimeResolvedMatrix) = m.data
 
-xlabel(m::TimeResolvedMatrix) =
-    _detect_spectral_unit(m.wavelength) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
-ylabel(m::TimeResolvedMatrix) = "Time ($(get(m.metadata, :time_unit, "ps")))"
-zlabel(m::TimeResolvedMatrix) = String(get(m.metadata, :signal_label, "ΔA"))
+xlabel(m::TimeResolvedMatrix) = _spectral_xlabel(m.metadata)
+ylabel(m::TimeResolvedMatrix) = _time_label(m.metadata, :time_unit)
+zlabel(m::TimeResolvedMatrix) = _signal_label(m.metadata)
 
 # Spectral axis unit heuristic shared by matrix and gated-spectrum types.
 function _detect_spectral_unit(wavelengths::AbstractVector{<:Real})
@@ -963,25 +964,20 @@ _detect_wavelength_unit(m::TimeResolvedMatrix) = _detect_spectral_unit(m.wavelen
 
 function Base.show(io::IO, m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
-    tu = get(m.metadata, :time_unit, "ps")
+    tu = (u = Symbol(get(m.metadata, :time_unit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     t_range = "$(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu"
     wl_range = "$(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1))"
-    wl_unit = _detect_wavelength_unit(m)
-    print(io, "TimeResolvedMatrix: $n_time × $n_wl ($t_range, $wl_range $wl_unit)")
+    print(io, "TimeResolvedMatrix: $n_time × $n_wl ($t_range, $wl_range)")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
-    tu = get(m.metadata, :time_unit, "ps")
-    wl_unit = _detect_wavelength_unit(m)
-
+    tu = (u = Symbol(get(m.metadata, :time_unit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     println(io, "TimeResolvedMatrix")
     println(io, "  Time points:   $n_time ($(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu)")
-    println(io, "  Wavelengths:   $n_wl ($(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1)) $wl_unit)")
+    println(io, "  Wavelengths:   $n_wl ($(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1)))")
     println(io, "  Data range:    $(round(minimum(m.data), sigdigits=3)) to $(round(maximum(m.data), sigdigits=3))")
-    if haskey(m.metadata, :source)
-        println(io, "  Source:        $(m.metadata[:source])")
-    end
+    haskey(m.metadata, :source) && println(io, "  Source:        $(m.metadata[:source])")
 end
 
 # =============================================================================

@@ -108,14 +108,18 @@ Random.seed!(42)
         @test xdata(matrix) == wavelength
         @test ydata(matrix) == time
         @test zdata(matrix) === data
-        @test xlabel(matrix) == "Wavelength (nm)"
+        @test xlabel(matrix) == "x"
         @test ylabel(matrix) == "Time (ps)"
-        @test zlabel(matrix) == "ΔA"
+        @test zlabel(matrix) == "Signal"
         @test is_matrix(matrix) == true
 
-        # Test wavenumber detection
-        matrix_wn = TimeResolvedMatrix(time, [1900.0, 2000.0, 2100.0], data)
-        @test xlabel(matrix_wn) == "Wavenumber (cm⁻¹)"
+        # tokens drive the spectral + signal labels
+        matrix_tok = TimeResolvedMatrix(time, wavelength, data; metadata=Dict{Symbol,Any}(
+            :xquantity => :wavenumber, :xunit => :per_cm,
+            :yquantity => :delta_absorbance, :yunit => :mOD, :time_unit => :ns))
+        @test xlabel(matrix_tok) == "Wavenumber (cm⁻¹)"
+        @test ylabel(matrix_tok) == "Time (ns)"
+        @test zlabel(matrix_tok) == "ΔA (mOD)"
     end
 
     @testset "Extended interface - source_file, npoints, title" begin
@@ -3158,11 +3162,10 @@ Random.seed!(42)
         @test xlabel(tr_default) == "Time (ps)"
         @test ylabel(tr_default) == "Signal"
 
-        md = Dict{Symbol,Any}(:time_unit => "ns", :signal_label => "Counts")
-
+        md = Dict{Symbol,Any}(:time_unit => :ns, :yquantity => :intensity, :yunit => :counts)
         m = TimeResolvedMatrix([0.0, 1.0], [500.0, 510.0], [1.0 2.0; 3.0 4.0]; metadata=md)
         @test ylabel(m) == "Time (ns)"
-        @test zlabel(m) == "Counts"
+        @test zlabel(m) == "Intensity (counts)"
         @test occursin("ns", sprint(show, m))
         @test occursin("ns", sprint(show, MIME("text/plain"), tr))
         @test occursin("ns", sprint(show, MIME("text/plain"), m))
