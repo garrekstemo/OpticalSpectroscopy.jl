@@ -89,4 +89,24 @@
         @test smt.metadata[:sample] == "demo"
     end
 
+    @testset "edge accessors and opt-in guess_units!" begin
+        s = Spectrum([1500.0, 1600.0], [1.0, 2.0]; axis=:wavenumber, yquantity=:absorbance, yunit=:OD)
+        @test xdata_unitful(s) == [1500.0, 1600.0] .* u"cm^-1"
+        @test ydata_unitful(s) == [1.0, 2.0]          # OD -> NoUnits
+
+        s_bare = Spectrum([1.0, 2.0], [3.0, 4.0])
+        @test xdata_unitful(s_bare) == [1.0, 2.0]
+
+        s_guess = Spectrum(collect(1500.0:1.0:1504.0), ones(5))
+        @test xlabel(s_guess) == "x"
+        guess_units!(s_guess)
+        @test s_guess.metadata[:xquantity] == :wavenumber
+        @test xlabel(s_guess) == "Wavenumber (cm⁻¹)"
+
+        s_nm = Spectrum([500.0, 600.0], [1.0, 2.0])
+        guess_units!(s_nm)
+        @test s_nm.metadata[:xquantity] == :wavelength
+        @test xlabel(s_nm) == "Wavelength (nm)"
+    end
+
 end

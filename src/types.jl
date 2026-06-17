@@ -1549,3 +1549,41 @@ function format_results(r::TASpectrumFit)
 
     return String(take!(io))
 end
+
+# =============================================================================
+# Token edge accessors and opt-in unit guessing (metadata token contract §4/§6)
+# =============================================================================
+
+_metadata(s::Spectrum) = s.metadata
+_metadata(t::KineticTrace) = t.metadata
+_metadata(m::TimeResolvedMatrix) = m.metadata
+
+"""
+    xdata_unitful(d) ; ydata_unitful(d)
+
+Return the x / signal data with their unit tokens (`:xunit` / `:yunit`) attached
+via Unitful (§6). With no token the unit is `Unitful.NoUnits` and the plain
+`Float64` vector is returned unchanged. Opt-in; core storage stays unitless.
+"""
+xdata_unitful(d::AbstractSpectroscopyData) =
+    xdata(d) .* _unitful(Symbol(get(_metadata(d), :xunit, :dimensionless)))
+ydata_unitful(d::AbstractSpectroscopyData) =
+    ydata(d) .* _unitful(Symbol(get(_metadata(d), :yunit, :dimensionless)))
+
+"""
+    guess_units!(s::Spectrum) -> Spectrum
+
+Opt-in heuristic: infer the x-axis quantity/unit from the data magnitude and
+stamp `:xquantity`/`:xunit`. Nothing calls this automatically — labels never
+guess on the user's behalf (the no-guess rule).
+"""
+function guess_units!(s::Spectrum)
+    if _detect_spectral_unit(s.x) == "cm⁻¹"
+        s.metadata[:xquantity] = :wavenumber
+        get!(s.metadata, :xunit, :per_cm)
+    else
+        s.metadata[:xquantity] = :wavelength
+        get!(s.metadata, :xunit, :nm)
+    end
+    return s
+end
