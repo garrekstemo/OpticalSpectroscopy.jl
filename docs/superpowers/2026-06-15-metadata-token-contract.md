@@ -1,8 +1,9 @@
 # Metadata token contract
 
-Status: **DRAFT for ratification** (2026-06-15). Companion to
-`2026-06-15-type-system-rearchitecture-handoff.md`. Greenfield — nothing has
-shipped except file readers, so no back-compat constraint.
+Status: **Implemented** (OpticalSpectroscopy.jl, 2026-06-16) — token vocabulary,
+clean-break no-guess labels, and the TASpectrum/GatedSpectrum collapse landed via
+docs/superpowers/plans/2026-06-16-metadata-token-contract-foundation.md. Remaining
+follow-on: matrix axisN refactor (§10 #3), QPSScanFormat HDF5 codec, loader stamping.
 
 This is the cross-cutting contract the whole re-architecture leans on. Once
 `Spectrum` absorbs `TASpectrum`/`GatedSpectrum` and `TimeResolvedMatrix`

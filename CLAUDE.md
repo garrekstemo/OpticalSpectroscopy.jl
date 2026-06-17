@@ -41,10 +41,9 @@ General-purpose spectroscopy analysis tools for Julia. Public, registerable pack
 
 ```
 AbstractSpectroscopyData (root interface)
-├── Spectrum            (generic 1D steady-state spectrum: signal vs spectral axis)
+├── Spectrum            (generic 1D: signal vs spectral axis; also holds TA
+│                        slices and gated spectra via metadata tokens)
 ├── KineticTrace        (kinetics: signal vs time at fixed wavelength)
-├── TASpectrum          (spectrum: signal vs wavenumber at fixed time)
-├── GatedSpectrum       (spectrum extracted from a time window)
 ├── TimeResolvedMatrix  (2D: time × wavelength heatmap)
 └── PLMap               (2D: spatial PL/Raman map)
 ```
