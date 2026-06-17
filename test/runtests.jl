@@ -244,13 +244,16 @@ Random.seed!(42)
         @test npoints(s) == 5
         @test signal(s) == s.y
 
-        # Label fallbacks: 1500-1504 detected as wavenumber
-        @test xlabel(s) == "Wavenumber (cm⁻¹)"
+        # No-guess rule: bare row-column data asserts only what it was told.
+        @test xlabel(s) == "x"
         @test ylabel(s) == "Signal"
 
-        # nm-range x detected as wavelength
-        s_nm = Spectrum([500.0, 600.0], [1.0, 2.0])
-        @test xlabel(s_nm) == "Wavelength (nm)"
+        # tokens drive the label when present
+        s_tok = Spectrum([1500.0, 1501.0], [1.0, 2.0];
+                         xquantity=:wavenumber, xunit=:per_cm,
+                         yquantity=:absorbance, yunit=:OD)
+        @test xlabel(s_tok) == "Wavenumber (cm⁻¹)"
+        @test ylabel(s_tok) == "Absorbance (OD)"
 
         # Metadata labels win over detection
         s_lbl = Spectrum([1.0, 2.0], [3.0, 4.0]; xlabel="Energy (eV)", ylabel="Counts")
@@ -271,7 +274,7 @@ Random.seed!(42)
                      sample="test", cavity_length=12e-4)
         @test occursin("Spectrum", sprint(show, s))
         @test occursin("5 points", sprint(show, s))
-        @test occursin("cm⁻¹", sprint(show, s))
+        @test occursin("1500.0 to 1504.0", sprint(show, s))
         s_xlbl = Spectrum([1.0, 2.0], [3.0, 4.0]; xlabel="Energy (eV)")
         @test !occursin("nm", sprint(show, s_xlbl))
         long = sprint(show, MIME("text/plain"), s)

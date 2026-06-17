@@ -1128,15 +1128,21 @@ end
 
 Generic 1D steady-state spectrum: signal versus a spectral axis.
 
-Covers FTIR, Raman, UV-Vis, photoluminescence, cavity transmission, and any
-other steady-state 1D data. Axis semantics live in `metadata`:
+Covers FTIR, Raman, UV-Vis, photoluminescence, cavity transmission, transient-
+absorption slices, and any other 1D data. Axis semantics live in `metadata` as
+reserved `(quantity, unit)` tokens, from which labels are derived (never guessed):
 
-- `:xlabel` — x-axis display label (default: detected from the x range,
-  `"Wavenumber (cm⁻¹)"` or `"Wavelength (nm)"`)
-- `:ylabel` — y-axis display label (default: `"Signal"`)
-- `:filename` / `:source` — source file for [`source_file`](@ref)
-- `:cavity_length` — picked up as the default cavity length by
-  `fit_cavity_spectrum` (cavity-fitting tools; convention reserved here)
+- `:xquantity` / `:xunit`, `:yquantity` / `:yunit` — axis tokens (e.g.
+  `:wavenumber` / `:per_cm`). See `axis_label`.
+- `:xlabel` / `:ylabel` — literal label strings; override the tokens.
+- `:time_delay` (+ `:time_delay_unit`) — fixed delay of a slice from a
+  `TimeResolvedMatrix`; `:gate_start` / `:gate_end` (+ `:gate_unit`) — the time
+  window of a gated/integrated slice.
+- `:filename` / `:source` — source file for [`source_file`](@ref).
+- `:cavity_length` — default cavity length for `fit_cavity_spectrum`.
+
+With no axis metadata, labels fall back to the honest generic floor (`"x"` /
+`"Signal"`) — bare row-column data loads with no units guessed.
 
 Metadata keys are stored as `Symbol`s. The positional-dict and keyword
 constructors both accept `String` keys (converted via `Symbol`), so a
@@ -1179,12 +1185,8 @@ end
 # AbstractSpectroscopyData interface
 xdata(s::Spectrum) = s.x
 ydata(s::Spectrum) = s.y
-function xlabel(s::Spectrum)
-    lbl = get(s.metadata, :xlabel, nothing)
-    isnothing(lbl) || return String(lbl)
-    return _detect_spectral_unit(s.x) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
-end
-ylabel(s::Spectrum) = String(get(s.metadata, :ylabel, "Signal"))
+xlabel(s::Spectrum) = _spectral_xlabel(s.metadata)
+ylabel(s::Spectrum) = _signal_label(s.metadata)
 source_file(s::Spectrum) = get(s.metadata, :filename, get(s.metadata, :source, ""))
 
 """
@@ -1196,9 +1198,8 @@ signal(s::Spectrum) = s.y
 
 function Base.show(io::IO, s::Spectrum)
     n = length(s.x)
-    unit = haskey(s.metadata, :xlabel) ? "" : " $(_detect_spectral_unit(s.x))"
     range = isempty(s.x) ? "" :
-        ", $(round(minimum(s.x), digits=1)) to $(round(maximum(s.x), digits=1))$unit"
+        ", $(round(minimum(s.x), digits=1)) to $(round(maximum(s.x), digits=1))"
     print(io, "Spectrum: $n points$range")
 end
 
