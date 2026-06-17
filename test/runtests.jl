@@ -62,7 +62,7 @@ Random.seed!(42)
         @test ydata(trace) == [0.1, 0.5, 0.3]
         @test zdata(trace) === nothing
         @test xlabel(trace) == "Time (ps)"
-        @test ylabel(trace) == "ΔA"
+        @test ylabel(trace) == "Signal"
         @test is_matrix(trace) == false
     end
 
@@ -3148,15 +3148,17 @@ Random.seed!(42)
     end
 
     @testset "Metadata-driven labels" begin
-        md = Dict{Symbol,Any}(:time_unit => "ns", :signal_label => "Counts")
-        tr = KineticTrace([0.0, 1.0], [1.0, 0.5]; metadata=md)
+        md_tr = Dict{Symbol,Any}(:xunit => :ns, :yquantity => :intensity, :yunit => :counts)
+        tr = KineticTrace([0.0, 1.0], [1.0, 0.5]; metadata=md_tr)
         @test xlabel(tr) == "Time (ns)"
-        @test ylabel(tr) == "Counts"
+        @test ylabel(tr) == "Intensity (counts)"
         @test occursin("ns", sprint(show, tr))
 
         tr_default = KineticTrace([0.0, 1.0], [1.0, 0.5])
         @test xlabel(tr_default) == "Time (ps)"
-        @test ylabel(tr_default) == "ΔA"
+        @test ylabel(tr_default) == "Signal"
+
+        md = Dict{Symbol,Any}(:time_unit => "ns", :signal_label => "Counts")
 
         m = TimeResolvedMatrix([0.0, 1.0], [500.0, 510.0], [1.0 2.0; 3.0 4.0]; metadata=md)
         @test ylabel(m) == "Time (ns)"
@@ -3164,7 +3166,7 @@ Random.seed!(42)
         @test occursin("ns", sprint(show, m))
         @test occursin("ns", sprint(show, MIME("text/plain"), tr))
         @test occursin("ns", sprint(show, MIME("text/plain"), m))
-        @test xlabel(m[λ=505.0]) == "Time (ns)"
+        @test xlabel(m[λ=505.0]) == "Time (ps)"
     end
 
     @testset "GatedSpectrum" begin

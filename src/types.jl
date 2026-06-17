@@ -139,8 +139,8 @@ end
 Single-wavelength kinetic trace: signal versus time.
 
 Covers transient-absorption kinetics (ΔA) and time-resolved PL decays
-(counts). Signal semantics live in `metadata` (see `:signal_label`,
-`:time_unit`).
+(counts). Signal/axis semantics live in token metadata (:yquantity/:yunit
+for the signal; :xunit for the time axis).
 
 # Fields
 - `time::Vector{Float64}`: Time axis
@@ -169,8 +169,8 @@ KineticTrace(time, signal; wavelength=NaN, metadata=Dict{Symbol,Any}()) =
 # AbstractSpectroscopyData interface
 xdata(t::KineticTrace) = t.time
 ydata(t::KineticTrace) = t.signal
-xlabel(t::KineticTrace) = "Time ($(get(t.metadata, :time_unit, "ps")))"
-ylabel(t::KineticTrace) = String(get(t.metadata, :signal_label, "ΔA"))
+xlabel(t::KineticTrace) = _time_label(t.metadata, :xunit)
+ylabel(t::KineticTrace) = _signal_label(t.metadata)
 source_file(t::KineticTrace) = get(t.metadata, :filename, get(t.metadata, :source, ""))
 
 # Semantic accessors
@@ -191,26 +191,22 @@ signal(t::KineticTrace) = t.signal
 # Pretty printing
 function Base.show(io::IO, t::KineticTrace)
     n = length(t.time)
-    tu = get(t.metadata, :time_unit, "ps")
+    tu = (u = Symbol(get(t.metadata, :xunit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     t_range = "$(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu"
-    filename = get(t.metadata, :filename, "")
-
+    src = source_file(t)
     print(io, "KineticTrace: $n points, $t_range")
-    !isempty(filename) && print(io, " ($(filename))")
+    isempty(src) || print(io, " ($(src))")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", t::KineticTrace)
-    tu = get(t.metadata, :time_unit, "ps")
+    tu = (u = Symbol(get(t.metadata, :xunit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     println(io, "KineticTrace")
     println(io, "  Time points: $(length(t.time))")
     println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu")
     println(io, "  Wavelength:  $(isnan(t.wavelength) ? "unknown" : t.wavelength)")
-    if haskey(t.metadata, :filename)
-        println(io, "  File:        $(t.metadata[:filename])")
-    end
-    if haskey(t.metadata, :mode)
-        println(io, "  Mode:        $(t.metadata[:mode])")
-    end
+    src = source_file(t)
+    isempty(src) || println(io, "  File:        $src")
+    haskey(t.metadata, :mode) && println(io, "  Mode:        $(t.metadata[:mode])")
 end
 
 """
