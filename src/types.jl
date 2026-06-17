@@ -46,8 +46,8 @@ abstract type AbstractSpectroscopyData end
 """
     xdata(d::AbstractSpectroscopyData) -> Vector{Float64}
 
-Return the primary x-axis data (e.g. time for [`KineticTrace`](@ref), wavenumber
-for [`TASpectrum`](@ref), wavelength for [`TimeResolvedMatrix`](@ref)).
+Return the primary x-axis data (e.g. time for [`KineticTrace`](@ref), the spectral
+axis for a [`Spectrum`](@ref) slice, wavelength for [`TimeResolvedMatrix`](@ref)).
 Every concrete subtype implements this.
 """
 xdata(::AbstractSpectroscopyData) = error("xdata not implemented for this type")
@@ -251,80 +251,6 @@ function Base.show(io::IO, ::MIME"text/plain", s::SweepData)
     println(io, "  Points:  $n_pts")
     println(io, "  Sweeps:  $n_sweeps")
     println(io, "  NaN X:   $n_nan")
-end
-
-"""
-    TASpectrum <: AbstractSpectroscopyData
-
-Transient absorption spectrum at a fixed time delay.
-
-# Fields
-- `wavenumber::Vector{Float64}`: Wavenumber axis (cm⁻¹)
-- `signal::Vector{Float64}`: ΔA signal
-- `time_delay::Float64`: Time delay (ps), NaN if unknown
-- `metadata::Dict{Symbol,Any}`: Additional info
-"""
-struct TASpectrum <: AbstractSpectroscopyData
-    wavenumber::Vector{Float64}
-    signal::Vector{Float64}
-    time_delay::Float64
-    metadata::Dict{Symbol,Any}
-
-    function TASpectrum(wavenumber, signal, time_delay, metadata)
-        length(wavenumber) == length(signal) || throw(ArgumentError(
-            "TASpectrum: wavenumber and signal must have equal length; " *
-            "got $(length(wavenumber)) wavenumber points and $(length(signal)) signal points"))
-        new(wavenumber, signal, time_delay, metadata)
-    end
-end
-
-# Constructor with default time_delay
-TASpectrum(wavenumber, signal; time_delay=NaN, metadata=Dict{Symbol,Any}()) =
-    TASpectrum(wavenumber, signal, time_delay, metadata)
-
-# AbstractSpectroscopyData interface
-xdata(s::TASpectrum) = s.wavenumber
-ydata(s::TASpectrum) = s.signal
-xlabel(::TASpectrum) = "Wavenumber (cm⁻¹)"
-ylabel(::TASpectrum) = "ΔA"
-source_file(s::TASpectrum) = get(s.metadata, :filename, "")
-
-# Semantic accessors
-"""
-    wavenumber(s::TASpectrum) -> Vector{Float64}
-
-Return the wavenumber axis (cm⁻¹).
-"""
-wavenumber(s::TASpectrum) = s.wavenumber
-
-"""
-    signal(s::TASpectrum) -> Vector{Float64}
-
-Return the ΔA signal.
-"""
-signal(s::TASpectrum) = s.signal
-
-# Pretty printing
-function Base.show(io::IO, s::TASpectrum)
-    n = length(s.wavenumber)
-    ν_range = "$(round(Int, minimum(s.wavenumber))) - $(round(Int, maximum(s.wavenumber))) cm⁻¹"
-    filename = get(s.metadata, :filename, "")
-
-    print(io, "TASpectrum: $n points, $ν_range")
-    !isempty(filename) && print(io, " ($(filename))")
-end
-
-function Base.show(io::IO, ::MIME"text/plain", s::TASpectrum)
-    println(io, "TASpectrum")
-    println(io, "  Points:      $(length(s.wavenumber))")
-    println(io, "  Range:       $(round(Int, minimum(s.wavenumber))) - $(round(Int, maximum(s.wavenumber))) cm⁻¹")
-    println(io, "  Time delay:  $(isnan(s.time_delay) ? "unknown" : "$(s.time_delay) ps")")
-    if haskey(s.metadata, :filename)
-        println(io, "  File:        $(s.metadata[:filename])")
-    end
-    if haskey(s.metadata, :mode)
-        println(io, "  Mode:        $(s.metadata[:mode])")
-    end
 end
 
 """

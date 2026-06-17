@@ -18,7 +18,6 @@ Random.seed!(42)
 
     @testset "Type hierarchy" begin
         @test KineticTrace <: AbstractSpectroscopyData
-        @test TASpectrum <: AbstractSpectroscopyData
         @test TimeResolvedMatrix <: AbstractSpectroscopyData
     end
 
@@ -31,11 +30,6 @@ Random.seed!(42)
         @test_throws ArgumentError KineticTrace([1.0, 2.0, 3.0], [1.0, 2.0], NaN, Dict{Symbol,Any}())
         # valid construction unaffected
         @test KineticTrace([1.0, 2.0], [0.1, 0.2]) isa KineticTrace
-
-        # TASpectrum: wavenumber and signal must have equal length
-        @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3])
-        @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3], NaN, Dict{Symbol,Any}())
-        @test TASpectrum([2000.0, 2050.0], [0.1, 0.2]) isa TASpectrum
 
         # TimeResolvedMatrix: data must be (n_time, n_wavelength)
         time = collect(0.0:1.0:10.0)        # 11 points
@@ -64,17 +58,6 @@ Random.seed!(42)
         @test xlabel(trace) == "Time (ps)"
         @test ylabel(trace) == "Signal"
         @test is_matrix(trace) == false
-    end
-
-    @testset "AbstractSpectroscopyData interface - TASpectrum" begin
-        spec = TASpectrum([2000.0, 2050.0, 2100.0], [0.1, 0.5, 0.3])
-
-        @test xdata(spec) == [2000.0, 2050.0, 2100.0]
-        @test ydata(spec) == [0.1, 0.5, 0.3]
-        @test zdata(spec) === nothing
-        @test xlabel(spec) == "Wavenumber (cm⁻¹)"
-        @test ylabel(spec) == "ΔA"
-        @test is_matrix(spec) == false
     end
 
     @testset "SweepData" begin
@@ -136,9 +119,8 @@ Random.seed!(42)
         @test npoints(trace_empty) == 2
         @test title(trace_empty) == ""
 
-        # TASpectrum
-        spec = TASpectrum([2000.0, 2050.0, 2100.0], [0.1, 0.5, 0.3];
-                          metadata=Dict{Symbol,Any}(:filename => "spec.lvm"))
+        # Spectrum
+        spec = Spectrum([2000.0, 2050.0, 2100.0], [0.1, 0.5, 0.3]; filename="spec.lvm")
         @test source_file(spec) == "spec.lvm"
         @test npoints(spec) == 3
         @test title(spec) == "spec.lvm"
@@ -158,12 +140,6 @@ Random.seed!(42)
         trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
         @test delay(trace) === trace.time
         @test signal(trace) === trace.signal
-    end
-
-    @testset "Semantic accessors - TASpectrum" begin
-        spec = TASpectrum([2000.0, 2050.0, 2100.0], [0.1, 0.5, 0.3])
-        @test wavenumber(spec) === spec.wavenumber
-        @test signal(spec) === spec.signal
     end
 
     @testset "Semantic accessors - TimeResolvedMatrix" begin
@@ -327,11 +303,9 @@ Random.seed!(42)
         @test find_peaks(g)[1].position == pks_vec[1].position
         @test band_area(g, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
 
-        # KineticTrace and TASpectrum flow through the same generic methods
+        # KineticTrace flows through the same generic methods
         kt = KineticTrace(x, y)
         @test estimate_snr(kt) == estimate_snr(y)
-        ta = TASpectrum(x, y)
-        @test band_area(ta, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
 
         # 2D guard
         m = TimeResolvedMatrix([0.0, 1.0], [700.0, 750.0], rand(2, 2))
@@ -1163,7 +1137,7 @@ Random.seed!(42)
         @test result.x == ν
         @test result.y ≈ y1 .- y2
 
-        # Typed interface (TASpectrum)
+        # Typed interface (Spectrum)
         spec1 = Spectrum(ν, y1)
         spec2 = Spectrum(ν, y2)
         result_typed = subtract_spectrum(spec1, spec2)
@@ -3134,7 +3108,7 @@ Random.seed!(42)
             0.02 .* randn(length(x))
         fit = fit_peaks(x, y; n_peaks=2, model=gaussian)
 
-        spec = TASpectrum(x, y)
+        spec = Spectrum(x, y)
         @test lines(spec) isa Makie.FigureAxisPlot
         steady = Spectrum(x, y; ylabel="Transmittance")
         @test lines(steady) isa Makie.FigureAxisPlot
