@@ -56,4 +56,16 @@
         @test normalize_quantity("Mystery") == :mystery
     end
 
+    @testset "_unitful bridge / CANONICAL_UNIT" begin
+        @test OpticalSpectroscopy._unitful(:per_cm) === u"cm^-1"
+        @test OpticalSpectroscopy._unitful(:nm) === u"nm"
+        @test OpticalSpectroscopy._unitful(:ps) === u"ps"
+        @test OpticalSpectroscopy._unitful(:OD) === Unitful.NoUnits
+        @test OpticalSpectroscopy._unitful(:dimensionless) === Unitful.NoUnits
+        @test [1.0, 2.0] .* OpticalSpectroscopy._unitful(:counts) == [1.0, 2.0]
+        @test OpticalSpectroscopy.CANONICAL_UNIT[:wavenumber] == :per_cm
+        @test OpticalSpectroscopy.CANONICAL_UNIT[:wavelength] == :nm
+        @test OpticalSpectroscopy.CANONICAL_UNIT[:delta_absorbance] == :mOD
+    end
+
 end

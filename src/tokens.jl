@@ -215,3 +215,34 @@ strings return `Symbol` of the lowercased, underscored text.
 """
 normalize_quantity(s::AbstractString) =
     get(_QUANTITY_ALIASES, lowercase(strip(s)), _fallback_token(lowercase(strip(s))))
+
+# Symbol↔Unitful bridge (§6) and canonical unit per quantity.
+
+const _UNITFUL_MAP = Dict{Symbol,Any}(
+    :nm => u"nm", :um => u"µm", :angstrom => u"angstrom", :per_cm => u"cm^-1",
+    :fs => u"fs", :ps => u"ps", :ns => u"ns", :degree => u"°",
+    :eV => u"eV", :meV => u"meV", :mm => u"mm",
+)
+
+"""
+    _unitful(unit::Symbol)
+
+Map a unit token to its Unitful unit (`_unitful(:per_cm) === u"cm^-1"`). Tokens
+Unitful cannot represent (`:OD`, `:counts`, `:arb`, `:points`, `:percent`, …)
+map to `Unitful.NoUnits`, the identity under `*`.
+"""
+_unitful(unit::Symbol) = get(_UNITFUL_MAP, unit, Unitful.NoUnits)
+
+"""
+    CANONICAL_UNIT
+
+Default unit token per quantity token, used by the `axis=` constructor sugar.
+"""
+const CANONICAL_UNIT = Dict{Symbol,Symbol}(
+    :wavelength => :nm, :wavenumber => :per_cm, :raman_shift => :per_cm,
+    :opd => :points, :two_theta => :degree, :time => :ps, :energy => :eV,
+    :position => :um,
+    :absorbance => :OD, :transmittance => :percent, :reflectance => :percent,
+    :single_beam => :arb, :interferogram => :arb, :delta_absorbance => :mOD,
+    :intensity => :counts,
+)
