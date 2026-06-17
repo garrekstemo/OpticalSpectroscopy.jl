@@ -419,7 +419,7 @@ Random.seed!(42)
         @test it.metadata[:sample] == "A"
 
         # Mixed family types still return NamedTuples (generic path)
-        g = Spectrum(x, yb)
+        g = KineticTrace(x, yb)
         nt = subtract_spectrum(a, g)
         @test nt isa NamedTuple
         @test nt.y ≈ ya .- yb
