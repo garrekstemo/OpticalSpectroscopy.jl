@@ -888,10 +888,10 @@ KineticTrace.
 # Indexing
 ```julia
 matrix[λ=800]     # Extract KineticTrace at λ ≈ 800 nm
-matrix[t=1.0]     # Extract TASpectrum at t ≈ 1.0 ps (pump-probe convention, fixed units)
+matrix[t=1.0]     # Extract Spectrum at t ≈ 1.0 ps (pump-probe convention, fixed units)
 ```
 
-`matrix[t=...]` returns a `TASpectrum` (pump-probe convention, wavenumber/wavelength
+`matrix[t=...]` returns a `Spectrum` (pump-probe convention, wavenumber/wavelength
 axis with ΔA signal). For unit-aware time slices of generic time-resolved data,
 use [`spectral_slice`](@ref) instead.
 """
@@ -989,33 +989,46 @@ function _find_nearest_idx(arr::AbstractVector, target::Real)
     return idx
 end
 
+# A kinetic (time-axis) slice inherits matrix metadata but its x-axis is time:
+# remap the matrix's time-axis unit (:time_unit) to the trace's :xunit and drop
+# the matrix's spectral x-tokens (which describe wavelength, not the trace's time
+# axis). Interim until the axisN refactor (§10 #3).
+function _trace_metadata(m::TimeResolvedMatrix)
+    md = copy(m.metadata)
+    md[:xunit] = Symbol(get(m.metadata, :time_unit, :ps))
+    delete!(md, :xquantity)
+    return md
+end
+
 function Base.getindex(m::TimeResolvedMatrix; λ=nothing, t=nothing)
     if !isnothing(λ) && isnothing(t)
         idx = _find_nearest_idx(m.wavelength, λ)
         actual_λ = m.wavelength[idx]
-        signal = m.data[:, idx]
+        sig = m.data[:, idx]
 
-        metadata = copy(m.metadata)
-        metadata[:extracted_from] = get(m.metadata, :source, "TimeResolvedMatrix")
-        metadata[:requested_wavelength] = λ
-        metadata[:actual_wavelength] = actual_λ
-        metadata[:wavelength_index] = idx
+        md = _trace_metadata(m)
+        md[:extracted_from] = get(m.metadata, :source, "TimeResolvedMatrix")
+        md[:requested_wavelength] = λ
+        md[:actual_wavelength] = actual_λ
+        md[:wavelength_index] = idx
 
-        return KineticTrace(m.time, signal, actual_λ, metadata)
+        return KineticTrace(m.time, sig, actual_λ, md)
 
     elseif !isnothing(t) && isnothing(λ)
         idx = _find_nearest_idx(m.time, t)
         actual_t = m.time[idx]
-        signal = m.data[idx, :]
+        sig = m.data[idx, :]
 
-        metadata = Dict{Symbol,Any}(
-            :extracted_from => get(m.metadata, :source, "TimeResolvedMatrix"),
-            :requested_time => t,
-            :actual_time => actual_t,
-            :time_index => idx
-        )
+        # Spectral slice: inherit the matrix's spectral (:xquantity/:xunit) and
+        # signal (:yquantity/:yunit) tokens directly; record the fixed delay.
+        md = copy(m.metadata)
+        md[:extracted_from] = get(m.metadata, :source, "TimeResolvedMatrix")
+        md[:time_index] = idx
+        md[:time_delay] = actual_t
+        haskey(m.metadata, :time_unit) &&
+            (md[:time_delay_unit] = Symbol(m.metadata[:time_unit]))
 
-        return TASpectrum(m.wavelength, signal, actual_t, metadata)
+        return Spectrum(m.wavelength, sig, md)
 
     elseif !isnothing(λ) && !isnothing(t)
         error("Cannot specify both λ and t. Use matrix[λ=...] or matrix[t=...]")

@@ -188,11 +188,11 @@ Random.seed!(42)
         @test length(trace.time) == 5
         @test trace.wavelength ≈ 800.0
 
-        # Extract TASpectrum at time
+        # Extract Spectrum at time
         spec = matrix[t=2.0]
-        @test spec isa TASpectrum
-        @test length(spec.wavenumber) == 4
-        @test spec.time_delay ≈ 2.0
+        @test spec isa Spectrum
+        @test length(xdata(spec)) == 4
+        @test spec.metadata[:time_delay] ≈ 2.0
 
         # Error cases
         @test_throws ErrorException matrix[]
@@ -3169,7 +3169,7 @@ Random.seed!(42)
         @test occursin("ns", sprint(show, m))
         @test occursin("ns", sprint(show, MIME("text/plain"), tr))
         @test occursin("ns", sprint(show, MIME("text/plain"), m))
-        @test xlabel(m[λ=505.0]) == "Time (ps)"
+        @test xlabel(m[λ=505.0]) == "Time (ns)"
     end
 
     @testset "GatedSpectrum" begin
