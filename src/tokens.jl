@@ -158,3 +158,60 @@ function validate_tokens(metadata::AbstractDict)
     end
     return ok
 end
+
+# Instrument-string normalization (§8). Owned here so every loader maps strings
+# the same way.
+
+const _UNIT_ALIASES = Dict{String,Symbol}(
+    "nm" => :nm, "nanometers" => :nm, "nanometer" => :nm,
+    "um" => :um, "µm" => :um, "μm" => :um, "micron" => :um, "microns" => :um, "micrometers" => :um,
+    "angstrom" => :angstrom, "angstroms" => :angstrom, "å" => :angstrom,
+    "cm-1" => :per_cm, "cm^-1" => :per_cm, "cm⁻¹" => :per_cm, "1/cm" => :per_cm, "per cm" => :per_cm,
+    "fs" => :fs, "ps" => :ps, "ns" => :ns,
+    "deg" => :degree, "degree" => :degree, "degrees" => :degree, "°" => :degree,
+    "ev" => :eV, "mev" => :meV,
+    "points" => :points, "point" => :points, "pts" => :points,
+    "mm" => :mm,
+    "counts" => :counts, "count" => :counts, "cts" => :counts,
+    "arb" => :arb, "arbitrary" => :arb, "a.u." => :arb, "au" => :arb,
+    "od" => :OD, "mod" => :mOD,
+    "%" => :percent, "%t" => :percent, "%r" => :percent, "percent" => :percent,
+    "fraction" => :fraction,
+    "dimensionless" => :dimensionless, "" => :dimensionless,
+)
+
+const _QUANTITY_ALIASES = Dict{String,Symbol}(
+    "absorbance" => :absorbance, "abs" => :absorbance,
+    "transmittance" => :transmittance, "%t" => :transmittance, "transmission" => :transmittance,
+    "reflectance" => :reflectance, "%r" => :reflectance, "reflection" => :reflectance,
+    "single beam" => :single_beam, "single-beam" => :single_beam, "sb" => :single_beam,
+    "interferogram" => :interferogram, "interferrogram" => :interferogram, "igram" => :interferogram,
+    "delta absorbance" => :delta_absorbance, "δa" => :delta_absorbance, "deltaa" => :delta_absorbance,
+    "intensity" => :intensity, "counts" => :intensity, "pl" => :intensity,
+    "wavelength" => :wavelength, "wavenumber" => :wavenumber,
+    "raman shift" => :raman_shift, "raman" => :raman_shift,
+    "2theta" => :two_theta, "two theta" => :two_theta, "2θ" => :two_theta,
+    "time" => :time, "delay" => :time, "energy" => :energy,
+)
+
+_fallback_token(key::AbstractString) = Symbol(replace(key, ' ' => '_'))
+
+"""
+    normalize_unit(s::AbstractString) -> Symbol
+
+Map a free-form instrument unit string to a canonical unit token (`"NANOMETERS"
+→ :nm`, `"1/cm" → :per_cm`). Unrecognized strings return `Symbol` of the
+lowercased, underscored text so nothing is lost.
+"""
+normalize_unit(s::AbstractString) =
+    get(_UNIT_ALIASES, lowercase(strip(s)), _fallback_token(lowercase(strip(s))))
+
+"""
+    normalize_quantity(s::AbstractString) -> Symbol
+
+Map a free-form instrument quantity string to a canonical quantity token
+(`"ABSORBANCE" → :absorbance`, `"Raman Shift" → :raman_shift`). Unrecognized
+strings return `Symbol` of the lowercased, underscored text.
+"""
+normalize_quantity(s::AbstractString) =
+    get(_QUANTITY_ALIASES, lowercase(strip(s)), _fallback_token(lowercase(strip(s))))

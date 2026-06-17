@@ -46,7 +46,7 @@ include("cosmic_rays.jl")
 export AbstractSpectroscopyData
 export xdata, ydata, zdata, xlabel, ylabel, zlabel, is_matrix
 export source_file, npoints, title
-export axis_label, is_canonical, validate_tokens
+export axis_label, is_canonical, validate_tokens, normalize_unit, normalize_quantity
 export Spectrum, KineticTrace, TASpectrum, TimeResolvedMatrix, GatedSpectrum, SweepData
 export delay, signal, wavenumber, wavelength
 

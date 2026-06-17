@@ -41,4 +41,19 @@
         @test validate_tokens(Dict{Symbol,Any}())
     end
 
+    @testset "normalize_unit / normalize_quantity" begin
+        @test normalize_unit("NANOMETERS") == :nm
+        @test normalize_unit("1/cm") == :per_cm
+        @test normalize_unit("cm-1") == :per_cm
+        @test normalize_unit("%T") == :percent
+        @test normalize_unit("") == :dimensionless
+        @test normalize_unit("Bananas Per Furlong") == :bananas_per_furlong
+
+        @test normalize_quantity("ABSORBANCE") == :absorbance
+        @test normalize_quantity("%T") == :transmittance
+        @test normalize_quantity("Raman Shift") == :raman_shift
+        @test normalize_quantity("interferrogram") == :interferogram   # real JASCO misspelling
+        @test normalize_quantity("Mystery") == :mystery
+    end
+
 end
