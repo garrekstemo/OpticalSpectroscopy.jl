@@ -973,7 +973,7 @@ Random.seed!(42)
         gsb = @. 0.008 * exp(-4 * log(2) * ((ν - 2060.0) / 18.0)^2)
         signal = esa .- gsb
 
-        spec = TASpectrum(ν, signal)
+        spec = Spectrum(ν, signal)
         result = fit_ta_spectrum(spec; region=(1980, 2120))
 
         @test result isa TASpectrumFit
@@ -1006,7 +1006,7 @@ Random.seed!(42)
         se = @. 0.003 * exp(-4 * log(2) * ((ν - 2100.0) / 25.0)^2)
         signal = esa .- gsb .- se
 
-        spec = TASpectrum(ν, signal)
+        spec = Spectrum(ν, signal)
         result = fit_ta_spectrum(spec; peaks=[:esa, :gsb, :se])
 
         @test length(result.peaks) == 3
@@ -1022,7 +1022,7 @@ Random.seed!(42)
         gsb = @. 0.008 * exp(-4 * log(2) * ((ν - 2060.0) / 18.0)^2)
         signal = esa .- gsb
 
-        spec = TASpectrum(ν, signal)
+        spec = Spectrum(ν, signal)
         result = fit_ta_spectrum(spec; peaks=[(:esa, lorentzian), (:gsb, gaussian)],
                                  region=(1980, 2120))
 
@@ -1042,7 +1042,7 @@ Random.seed!(42)
         gsb3 = @. 0.003 * exp(-4 * log(2) * ((ν - 2070.0) / 8.0)^2)
         signal = (esa1 .+ esa2 .+ esa3) .- (gsb1 .+ gsb2 .+ gsb3)
 
-        spec = TASpectrum(ν, signal)
+        spec = Spectrum(ν, signal)
         result = fit_ta_spectrum(spec; peaks=[:esa, :esa, :esa, :gsb, :gsb, :gsb])
 
         @test length(result.peaks) == 6
@@ -1164,8 +1164,8 @@ Random.seed!(42)
         @test result.y ≈ y1 .- y2
 
         # Typed interface (TASpectrum)
-        spec1 = TASpectrum(ν, y1)
-        spec2 = TASpectrum(ν, y2)
+        spec1 = Spectrum(ν, y1)
+        spec2 = Spectrum(ν, y2)
         result_typed = subtract_spectrum(spec1, spec2)
         @test result_typed.x == ν
         @test result_typed.y ≈ y1 .- y2
