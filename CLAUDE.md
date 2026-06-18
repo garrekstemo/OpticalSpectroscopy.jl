@@ -1,102 +1,45 @@
 # OpticalSpectroscopy.jl
 
-General-purpose spectroscopy analysis tools for Julia. Public, registerable package — lab-specific features (instrument I/O, sample registries, eLabFTW) stay in QPSTools.jl.
+Analysis layer of the lab spectroscopy stack (see global CLAUDE.md ecosystem map). Pure analysis — instrument I/O, sample registries, eLabFTW glue, and Makie themes (`qps_theme`, `publication_theme`) stay in QPSTools.jl.
 
-## Package Scope
+## Scope
 
-### In Scope
+In scope: peak fitting/detection, baseline correction, exponential decay (single/multi/global + IRF convolution), unit conversions, normalization/smoothing/spectral math, chirp correction and background subtraction for broadband TA, the typed `AbstractSpectroscopyData` hierarchy, transforms (Kramers-Kronig, Kubelka-Munk, Tauc, SNV), PL/Raman map decomposition (PCA/NMF), cosmic-ray removal, **cavity/polariton physics + fitting** (Hopfield, Rabi, dispersion — `src/cavity.jl`), and the **token-driven TA/gated semantics** (`src/tokens.jl`, `src/timeresolved.jl`).
 
-- Peak fitting (Gaussian, Lorentzian, Pseudo-Voigt) via CurveFit.jl + CurveFitModels.jl
-- Peak detection via Peaks.jl
-- Baseline correction (arPLS, SNIP, rubberband, iModPoly, rolling ball)
-- Exponential decay fitting (single/multi-exponential) with optional IRF convolution
-- Global fitting with shared parameters across traces
-- Unit conversions (wavenumber/wavelength/energy, linewidth/decay-time)
-- Normalization, smoothing, spectral math
-- Chirp correction for broadband TA (detection, correction, serialization)
-- Background subtraction for TA matrices
-- Typed spectroscopy data (`AbstractSpectroscopyData` hierarchy)
-- Plotting via Makie extension (no themes — users set their own)
+Dependency budget: target **< 15 direct deps**.
 
-### Out of Scope (stays in QPSTools.jl)
+File-reader packages (JASCOFiles, HamamatsuStreakFiles) own no transforms or axis labels — they emit raw data plus the instrument's native unit strings. All unit conversions (including transmittance↔absorbance) and axis labels live here, in the analysis layer.
 
-- Instrument-specific I/O (LabVIEW .lvm, JASCO CSV)
-- Sample registries and metadata lookup
-- eLabFTW integration
-- Lab themes (`qps_theme`, `publication_theme`)
+## Types
 
-## Dependencies
+`AbstractSpectroscopyData` root, with concrete `Spectrum` (generic 1D; also carries TA slices and gated spectra via metadata tokens), `KineticTrace`, `TimeResolvedMatrix`, `PLMap`. `SweepData` is a separate (non-`AbstractSpectroscopyData`) struct in `types.jl`.
 
-**Target: < 15 direct dependencies.** Currently 11 (8 non-stdlib).
+Interface contract — every `AbstractSpectroscopyData` type implements: `xdata`, `ydata`, `zdata`, `xlabel`, `ylabel`, `is_matrix`, `source_file`, `npoints`, `title`.
 
-**Compat entries required**: All non-stdlib dependencies MUST have `[compat]` entries in Project.toml (required for General registry registration).
+`AnnotatedSpectrum` (with FTIR/Raman subtypes) is defined in **QPSTools.jl, NOT here** — do not add it to this package.
 
-### Extensions (Weak Dependencies)
+Metadata tokens: every axis is a `(quantity, unit)` pair of `Symbol` tokens; display labels are *derived* from tokens, never stored as prose or guessed from data magnitudes. See `docs/superpowers/2026-06-15-metadata-token-contract.md`.
 
-| Extension | Trigger | Purpose |
-|-----------|---------|---------|
-| `OpticalSpectroscopyMakieExt` | CairoMakie or GLMakie | Plotting functions |
+## Cavity / polaritons (`src/cavity.jl`)
 
-## Type Hierarchy
+Live API is vector-based: `polariton_branches(E_cav, E_vib, Omega)`, `hopfield_coefficients(E_cav, E_vib, Omega)`, `fit_cavity_spectrum(nu, T; ...)` with a `fit_cavity_spectrum(s::Spectrum; ...)` method dispatching on the generic `Spectrum`. This layer was merged in from the now-archived CavitySpectroscopy.jl (June 2026); the old `CavitySpectrum` type and `load_cavity` loader were NOT carried over. (Unrelated: the Variable-Rabi-Splitting-VSC-Project repo has its own local module also named `CavitySpectroscopy` — never conflate them.)
 
-```
-AbstractSpectroscopyData (root interface)
-├── Spectrum            (generic 1D steady-state spectrum: signal vs spectral axis)
-├── KineticTrace        (kinetics: signal vs time at fixed wavelength)
-├── TASpectrum          (spectrum: signal vs wavenumber at fixed time)
-├── GatedSpectrum       (spectrum extracted from a time window)
-├── TimeResolvedMatrix  (2D: time × wavelength heatmap)
-└── PLMap               (2D: spatial PL/Raman map)
-```
+## API conventions
 
-`AnnotatedSpectrum` (with metadata, FTIR/Raman subtypes) is defined in QPSTools.jl, not here.
+- **Dual interface**: functions accept typed spectroscopy data (preferred) or raw vectors.
+- **Model functions come from CurveFitModels.jl** — never define fitting functions inline.
+- **Fit results are structs** with `predict` / `residuals` / `report` accessors.
+- **Plotting (Makie weakdep ext)**: aesthetics-free, no themes here (themes are in QPSTools). Inline styling only for semantic distinction (e.g. fit vs data color).
 
-All types implement: `xdata`, `ydata`, `zdata`, `xlabel`, `ylabel`, `is_matrix`, `source_file`, `npoints`, `title`.
+## CurveFit.jl integration
 
-## API Design Principles
+Extend `CurveFit.residuals`, `CurveFit.predict`, `CurveFit.fitted` for this package's fit-result types via `import CurveFit: residuals, predict, fitted` (not `using` — needed for method extension). CurveFit provides no R² — compute `1 - rss(sol) / ss_tot` yourself.
 
-- **Dual interface**: Functions accept typed spectroscopy data (preferred) or raw vectors.
-- **Model functions from CurveFitModels.jl**: Never define fitting functions inline.
-- **Fit results are structs**: Every fitting function returns a proper result type with accessors (`predict`, `residuals`, `report`).
-- **No themes in plotting**: Extension provides functions, not aesthetics. Only inline styling for semantic distinction (e.g., `color=:red` for fit vs data).
+## Source layout
 
-## CurveFit.jl Integration
-
-OpticalSpectroscopy extends `CurveFit.residuals`, `CurveFit.predict`, and `CurveFit.fitted` with methods for its own fit result types. Use `import CurveFit: residuals, predict, fitted` (not just `using`) to enable method extension. CurveFit does NOT provide R² — compute as `1 - rss(sol) / ss_tot`.
-
-## Three-Package Boundary
-
-| Package | Owns |
-|---------|------|
-| **CurveFitModels.jl** | Model functions (`gaussian`, `lorentzian`, etc.). Zero dependencies. |
-| **OpticalSpectroscopy.jl** | Types, fitting, baseline, peak detection, chirp, units. Uses CurveFitModels internally. |
-| **QPSTools.jl** | Instrument I/O, sample registry, eLabFTW, Makie themes. Re-exports OpticalSpectroscopy. |
-
-- OpticalSpectroscopy does NOT re-export model constructors that are only used internally.
-- QPSTools `import`s OpticalSpectroscopy functions to extend with `AnnotatedSpectrum` dispatches.
-- Lab members use `using QPSTools` — OpticalSpectroscopy is invisible to them.
-
-## Package Structure
-
-```
-src/
-  OpticalSpectroscopy.jl  # Main module
-  types.jl                # AbstractSpectroscopyData + fit result types
-  fitting.jl              # Exponential decay (single/multi/global + IRF)
-  peakfitting.jl          # Multi-peak fitting + TA spectrum fitting
-  peakdetection.jl        # Peak finding
-  baseline.jl             # arPLS, SNIP, rubberband, iModPoly, rolling ball
-  spectroscopy.jl         # Normalize, conversions, smoothing
-  transforms.jl           # Kramers-Kronig, Kubelka-Munk, Tauc, SNV
-  units.jl                # Unitful conversions
-  chirp.jl                # Chirp detection, correction, serialization
-  plmap.jl                # PLMap type, fit_map, intensity masks
-  decomposition.jl        # PCA / NMF map decomposition
-  cosmic_rays.jl          # Cosmic ray detection and removal
-```
+Entry point `src/OpticalSpectroscopy.jl`; browse `src/`. Baseline algorithms (`src/baseline.jl`): arPLS, SNIP, rubberband, iModPoly, rolling ball.
 
 ## Development
 
-- **Not yet registered.**
-- All tests use synthetic data — no local file dependencies.
-- CI runs on Ubuntu only (Julia 1.10 and 1.12).
+- Version 0.1.0, not yet registered (first registers as 0.1).
+- Tests use synthetic data only — no local file dependencies.

@@ -43,6 +43,7 @@ zdata(m::PLMap) = m.intensity
 xlabel(::PLMap) = "X (μm)"
 ylabel(::PLMap) = "Y (μm)"
 zlabel(::PLMap) = "PL Intensity"
+_metadata(m::PLMap) = m.metadata
 is_matrix(::PLMap) = true
 npoints(m::PLMap) = (length(m.x), length(m.y))
 source_file(m::PLMap) = get(m.metadata, "source_file", "unknown")

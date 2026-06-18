@@ -14,9 +14,7 @@ OpticalSpectroscopy.OpticalSpectroscopy
 AbstractSpectroscopyData
 Spectrum
 KineticTrace
-TASpectrum
 TimeResolvedMatrix
-GatedSpectrum
 SweepData
 TASpectrumFit
 TAPeak
@@ -63,6 +61,20 @@ delay
 signal
 wavenumber
 wavelength
+```
+
+## Metadata Tokens
+
+The `(quantity, unit)` Symbol tokens that describe a spectrum's axes: normalizers map free-form strings to canonical Symbols, `axis_label` resolves a display label, `is_canonical`/`validate_tokens` check a metadata dict, `guess_units!` opts a `Spectrum` into inferred tokens, and `xdata_unitful` returns the x-axis as a `Unitful` vector.
+
+```@docs
+normalize_quantity
+normalize_unit
+axis_label
+is_canonical
+validate_tokens
+guess_units!
+xdata_unitful
 ```
 
 ## Plotting

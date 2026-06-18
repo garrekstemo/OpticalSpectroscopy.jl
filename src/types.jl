@@ -46,8 +46,8 @@ abstract type AbstractSpectroscopyData end
 """
     xdata(d::AbstractSpectroscopyData) -> Vector{Float64}
 
-Return the primary x-axis data (e.g. time for [`KineticTrace`](@ref), wavenumber
-for [`TASpectrum`](@ref), wavelength for [`TimeResolvedMatrix`](@ref)).
+Return the primary x-axis data (e.g. time for [`KineticTrace`](@ref), the spectral
+axis for a [`Spectrum`](@ref) slice, wavelength for [`TimeResolvedMatrix`](@ref)).
 Every concrete subtype implements this.
 """
 xdata(::AbstractSpectroscopyData) = error("xdata not implemented for this type")
@@ -139,8 +139,8 @@ end
 Single-wavelength kinetic trace: signal versus time.
 
 Covers transient-absorption kinetics (ΔA) and time-resolved PL decays
-(counts). Signal semantics live in `metadata` (see `:signal_label`,
-`:time_unit`).
+(counts). Signal/axis semantics live in token metadata (:yquantity/:yunit
+for the signal; :xunit for the time axis).
 
 # Fields
 - `time::Vector{Float64}`: Time axis
@@ -169,8 +169,8 @@ KineticTrace(time, signal; wavelength=NaN, metadata=Dict{Symbol,Any}()) =
 # AbstractSpectroscopyData interface
 xdata(t::KineticTrace) = t.time
 ydata(t::KineticTrace) = t.signal
-xlabel(t::KineticTrace) = "Time ($(get(t.metadata, :time_unit, "ps")))"
-ylabel(t::KineticTrace) = String(get(t.metadata, :signal_label, "ΔA"))
+xlabel(t::KineticTrace) = _time_label(t.metadata, :xunit)
+ylabel(t::KineticTrace) = _signal_label(t.metadata)
 source_file(t::KineticTrace) = get(t.metadata, :filename, get(t.metadata, :source, ""))
 
 # Semantic accessors
@@ -191,26 +191,22 @@ signal(t::KineticTrace) = t.signal
 # Pretty printing
 function Base.show(io::IO, t::KineticTrace)
     n = length(t.time)
-    tu = get(t.metadata, :time_unit, "ps")
+    tu = (u = Symbol(get(t.metadata, :xunit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     t_range = "$(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu"
-    filename = get(t.metadata, :filename, "")
-
+    src = source_file(t)
     print(io, "KineticTrace: $n points, $t_range")
-    !isempty(filename) && print(io, " ($(filename))")
+    isempty(src) || print(io, " ($(src))")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", t::KineticTrace)
-    tu = get(t.metadata, :time_unit, "ps")
+    tu = (u = Symbol(get(t.metadata, :xunit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     println(io, "KineticTrace")
     println(io, "  Time points: $(length(t.time))")
     println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu")
     println(io, "  Wavelength:  $(isnan(t.wavelength) ? "unknown" : t.wavelength)")
-    if haskey(t.metadata, :filename)
-        println(io, "  File:        $(t.metadata[:filename])")
-    end
-    if haskey(t.metadata, :mode)
-        println(io, "  Mode:        $(t.metadata[:mode])")
-    end
+    src = source_file(t)
+    isempty(src) || println(io, "  File:        $src")
+    haskey(t.metadata, :mode) && println(io, "  Mode:        $(t.metadata[:mode])")
 end
 
 """
@@ -255,80 +251,6 @@ function Base.show(io::IO, ::MIME"text/plain", s::SweepData)
     println(io, "  Points:  $n_pts")
     println(io, "  Sweeps:  $n_sweeps")
     println(io, "  NaN X:   $n_nan")
-end
-
-"""
-    TASpectrum <: AbstractSpectroscopyData
-
-Transient absorption spectrum at a fixed time delay.
-
-# Fields
-- `wavenumber::Vector{Float64}`: Wavenumber axis (cm⁻¹)
-- `signal::Vector{Float64}`: ΔA signal
-- `time_delay::Float64`: Time delay (ps), NaN if unknown
-- `metadata::Dict{Symbol,Any}`: Additional info
-"""
-struct TASpectrum <: AbstractSpectroscopyData
-    wavenumber::Vector{Float64}
-    signal::Vector{Float64}
-    time_delay::Float64
-    metadata::Dict{Symbol,Any}
-
-    function TASpectrum(wavenumber, signal, time_delay, metadata)
-        length(wavenumber) == length(signal) || throw(ArgumentError(
-            "TASpectrum: wavenumber and signal must have equal length; " *
-            "got $(length(wavenumber)) wavenumber points and $(length(signal)) signal points"))
-        new(wavenumber, signal, time_delay, metadata)
-    end
-end
-
-# Constructor with default time_delay
-TASpectrum(wavenumber, signal; time_delay=NaN, metadata=Dict{Symbol,Any}()) =
-    TASpectrum(wavenumber, signal, time_delay, metadata)
-
-# AbstractSpectroscopyData interface
-xdata(s::TASpectrum) = s.wavenumber
-ydata(s::TASpectrum) = s.signal
-xlabel(::TASpectrum) = "Wavenumber (cm⁻¹)"
-ylabel(::TASpectrum) = "ΔA"
-source_file(s::TASpectrum) = get(s.metadata, :filename, "")
-
-# Semantic accessors
-"""
-    wavenumber(s::TASpectrum) -> Vector{Float64}
-
-Return the wavenumber axis (cm⁻¹).
-"""
-wavenumber(s::TASpectrum) = s.wavenumber
-
-"""
-    signal(s::TASpectrum) -> Vector{Float64}
-
-Return the ΔA signal.
-"""
-signal(s::TASpectrum) = s.signal
-
-# Pretty printing
-function Base.show(io::IO, s::TASpectrum)
-    n = length(s.wavenumber)
-    ν_range = "$(round(Int, minimum(s.wavenumber))) - $(round(Int, maximum(s.wavenumber))) cm⁻¹"
-    filename = get(s.metadata, :filename, "")
-
-    print(io, "TASpectrum: $n points, $ν_range")
-    !isempty(filename) && print(io, " ($(filename))")
-end
-
-function Base.show(io::IO, ::MIME"text/plain", s::TASpectrum)
-    println(io, "TASpectrum")
-    println(io, "  Points:      $(length(s.wavenumber))")
-    println(io, "  Range:       $(round(Int, minimum(s.wavenumber))) - $(round(Int, maximum(s.wavenumber))) cm⁻¹")
-    println(io, "  Time delay:  $(isnan(s.time_delay) ? "unknown" : "$(s.time_delay) ps")")
-    if haskey(s.metadata, :filename)
-        println(io, "  File:        $(s.metadata[:filename])")
-    end
-    if haskey(s.metadata, :mode)
-        println(io, "  Mode:        $(s.metadata[:mode])")
-    end
 end
 
 """
@@ -878,8 +800,10 @@ end
 
 Two-dimensional time-resolved spectroscopy data (time × wavelength).
 
-Covers transient absorption (ΔA) and streak-camera PL (counts). Signal
-semantics live in `metadata` (see `:signal_label`, `:time_unit`).
+Covers transient absorption (ΔA) and streak-camera PL (counts). Spectral
+axis tokens :xquantity/:xunit; signal tokens :yquantity/:yunit; time-axis
+unit :time_unit. matrix[t=…] returns a Spectrum; matrix[λ=…] returns a
+KineticTrace.
 
 # Fields
 - `time::Vector{Float64}`: Time axis
@@ -890,12 +814,13 @@ semantics live in `metadata` (see `:signal_label`, `:time_unit`).
 # Indexing
 ```julia
 matrix[λ=800]     # Extract KineticTrace at λ ≈ 800 nm
-matrix[t=1.0]     # Extract TASpectrum at t ≈ 1.0 ps (pump-probe convention, fixed units)
+matrix[t=1.0]     # Extract Spectrum at t ≈ 1.0 ps (tagged with :time_delay)
 ```
 
-`matrix[t=...]` returns a `TASpectrum` (pump-probe convention, wavenumber/wavelength
-axis with ΔA signal). For unit-aware time slices of generic time-resolved data,
-use [`spectral_slice`](@ref) instead.
+`matrix[t=...]` returns a `Spectrum` whose axis/signal labels derive from the
+matrix's tokens (honest `"x"`/`"Signal"` floor if absent), tagged with the slice's
+`:time_delay`. For a spectrum gated/integrated over a time window, use
+[`spectral_slice`](@ref) or [`integrate_time`](@ref).
 """
 struct TimeResolvedMatrix <: AbstractSpectroscopyData
     time::Vector{Float64}
@@ -951,41 +876,33 @@ Return the signal matrix (n_time × n_wavelength).
 """
 signal(m::TimeResolvedMatrix) = m.data
 
-xlabel(m::TimeResolvedMatrix) =
-    _detect_spectral_unit(m.wavelength) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
-ylabel(m::TimeResolvedMatrix) = "Time ($(get(m.metadata, :time_unit, "ps")))"
-zlabel(m::TimeResolvedMatrix) = String(get(m.metadata, :signal_label, "ΔA"))
+xlabel(m::TimeResolvedMatrix) = _spectral_xlabel(m.metadata)
+ylabel(m::TimeResolvedMatrix) = _time_label(m.metadata, :time_unit)
+zlabel(m::TimeResolvedMatrix) = _signal_label(m.metadata)
 
-# Spectral axis unit heuristic shared by matrix and gated-spectrum types.
+# Spectral axis unit heuristic — opt-in only; the sole caller is guess_units! (no automatic call sites).
 function _detect_spectral_unit(wavelengths::AbstractVector{<:Real})
     isempty(wavelengths) && return "nm"
     minval, maxval = extrema(wavelengths)
     (minval > 1200 && maxval < 5000) ? "cm⁻¹" : "nm"
 end
 
-_detect_wavelength_unit(m::TimeResolvedMatrix) = _detect_spectral_unit(m.wavelength)
-
 function Base.show(io::IO, m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
-    tu = get(m.metadata, :time_unit, "ps")
+    tu = (u = Symbol(get(m.metadata, :time_unit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     t_range = "$(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu"
     wl_range = "$(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1))"
-    wl_unit = _detect_wavelength_unit(m)
-    print(io, "TimeResolvedMatrix: $n_time × $n_wl ($t_range, $wl_range $wl_unit)")
+    print(io, "TimeResolvedMatrix: $n_time × $n_wl ($t_range, $wl_range)")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
-    tu = get(m.metadata, :time_unit, "ps")
-    wl_unit = _detect_wavelength_unit(m)
-
+    tu = (u = Symbol(get(m.metadata, :time_unit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     println(io, "TimeResolvedMatrix")
     println(io, "  Time points:   $n_time ($(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu)")
-    println(io, "  Wavelengths:   $n_wl ($(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1)) $wl_unit)")
+    println(io, "  Wavelengths:   $n_wl ($(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1)))")
     println(io, "  Data range:    $(round(minimum(m.data), sigdigits=3)) to $(round(maximum(m.data), sigdigits=3))")
-    if haskey(m.metadata, :source)
-        println(io, "  Source:        $(m.metadata[:source])")
-    end
+    haskey(m.metadata, :source) && println(io, "  Source:        $(m.metadata[:source])")
 end
 
 # =============================================================================
@@ -997,121 +914,51 @@ function _find_nearest_idx(arr::AbstractVector, target::Real)
     return idx
 end
 
+# A kinetic (time-axis) slice inherits matrix metadata but its x-axis is time:
+# remap the matrix's time-axis unit (:time_unit) to the trace's :xunit and drop
+# the matrix's spectral x-tokens (which describe wavelength, not the trace's time
+# axis). Interim until the axisN refactor (§10 #3).
+function _trace_metadata(m::TimeResolvedMatrix)
+    md = copy(m.metadata)
+    md[:xunit] = Symbol(get(m.metadata, :time_unit, :ps))
+    delete!(md, :xquantity)
+    return md
+end
+
 function Base.getindex(m::TimeResolvedMatrix; λ=nothing, t=nothing)
     if !isnothing(λ) && isnothing(t)
         idx = _find_nearest_idx(m.wavelength, λ)
         actual_λ = m.wavelength[idx]
-        signal = m.data[:, idx]
+        sig = m.data[:, idx]
 
-        metadata = copy(m.metadata)
-        metadata[:extracted_from] = get(m.metadata, :source, "TimeResolvedMatrix")
-        metadata[:requested_wavelength] = λ
-        metadata[:actual_wavelength] = actual_λ
-        metadata[:wavelength_index] = idx
+        md = _trace_metadata(m)
+        md[:extracted_from] = get(m.metadata, :source, "TimeResolvedMatrix")
+        md[:requested_wavelength] = λ
+        md[:actual_wavelength] = actual_λ
+        md[:wavelength_index] = idx
 
-        return KineticTrace(m.time, signal, actual_λ, metadata)
+        return KineticTrace(m.time, sig, actual_λ, md)
 
     elseif !isnothing(t) && isnothing(λ)
         idx = _find_nearest_idx(m.time, t)
         actual_t = m.time[idx]
-        signal = m.data[idx, :]
+        sig = m.data[idx, :]
 
-        metadata = Dict{Symbol,Any}(
-            :extracted_from => get(m.metadata, :source, "TimeResolvedMatrix"),
-            :requested_time => t,
-            :actual_time => actual_t,
-            :time_index => idx
-        )
+        # Spectral slice: inherit the matrix's spectral (:xquantity/:xunit) and
+        # signal (:yquantity/:yunit) tokens directly; record the fixed delay.
+        md = copy(m.metadata)
+        md[:extracted_from] = get(m.metadata, :source, "TimeResolvedMatrix")
+        md[:time_index] = idx
+        md[:time_delay] = actual_t
+        haskey(m.metadata, :time_unit) &&
+            (md[:time_delay_unit] = Symbol(m.metadata[:time_unit]))
 
-        return TASpectrum(m.wavelength, signal, actual_t, metadata)
+        return Spectrum(m.wavelength, sig, md)
 
     elseif !isnothing(λ) && !isnothing(t)
         error("Cannot specify both λ and t. Use matrix[λ=...] or matrix[t=...]")
     else
         error("Must specify either λ or t for indexing. Use matrix[λ=...] or matrix[t=...]")
-    end
-end
-
-# =============================================================================
-# GatedSpectrum
-# =============================================================================
-
-"""
-    GatedSpectrum <: AbstractSpectroscopyData
-
-Spectrum extracted from a [`TimeResolvedMatrix`](@ref) over a time window.
-
-Produced by `spectral_slice` (gated mean) and `integrate_time`
-(sum over time). `t_range` records the time window `(t_lo, t_hi)` of the
-extraction; `(NaN, NaN)` if unknown.
-
-# Fields
-- `wavelength::Vector{Float64}`: Spectral axis
-- `signal::Vector{Float64}`: Signal at each wavelength
-- `t_range::Tuple{Float64,Float64}`: Time window of extraction
-- `metadata::Dict{Symbol,Any}`: Additional info; display reads `:signal_label`, `:time_unit`, and `:source`
-"""
-struct GatedSpectrum <: AbstractSpectroscopyData
-    wavelength::Vector{Float64}
-    signal::Vector{Float64}
-    t_range::Tuple{Float64,Float64}
-    metadata::Dict{Symbol,Any}
-
-    function GatedSpectrum(wavelength, signal, t_range, metadata)
-        length(wavelength) == length(signal) || throw(ArgumentError(
-            "GatedSpectrum: wavelength and signal must have equal length; " *
-            "got $(length(wavelength)) and $(length(signal))"))
-        new(wavelength, signal, t_range, metadata)
-    end
-end
-
-GatedSpectrum(wavelength, signal; t_range=(NaN, NaN), metadata=Dict{Symbol,Any}()) =
-    GatedSpectrum(wavelength, signal, t_range, metadata)
-
-xdata(g::GatedSpectrum) = g.wavelength
-ydata(g::GatedSpectrum) = g.signal
-xlabel(g::GatedSpectrum) =
-    _detect_spectral_unit(g.wavelength) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
-ylabel(g::GatedSpectrum) = String(get(g.metadata, :signal_label, "ΔA"))
-source_file(g::GatedSpectrum) = get(g.metadata, :source, "")
-
-"""
-    wavelength(g::GatedSpectrum) -> Vector{Float64}
-
-Return the spectral axis.
-"""
-wavelength(g::GatedSpectrum) = g.wavelength
-
-"""
-    signal(g::GatedSpectrum) -> Vector{Float64}
-
-Return the signal.
-"""
-signal(g::GatedSpectrum) = g.signal
-
-function Base.show(io::IO, g::GatedSpectrum)
-    n = length(g.wavelength)
-    tu = get(g.metadata, :time_unit, "ps")
-    range = isempty(g.wavelength) ? "" :
-        ", $(round(minimum(g.wavelength), digits=1)) to $(round(maximum(g.wavelength), digits=1)) $(_detect_spectral_unit(g.wavelength))"
-    gate = any(isnan, g.t_range) ? "" :
-        ", t = $(round(g.t_range[1], digits=2)) to $(round(g.t_range[2], digits=2)) $tu"
-    print(io, "GatedSpectrum: $n points$range$gate")
-end
-
-function Base.show(io::IO, ::MIME"text/plain", g::GatedSpectrum)
-    tu = get(g.metadata, :time_unit, "ps")
-    println(io, "GatedSpectrum")
-    println(io, "  Points:      $(length(g.wavelength))")
-    if !isempty(g.wavelength)
-        u = _detect_spectral_unit(g.wavelength)
-        println(io, "  Range:       $(round(minimum(g.wavelength), digits=1)) to $(round(maximum(g.wavelength), digits=1)) $u")
-    end
-    if !any(isnan, g.t_range)
-        println(io, "  Time gate:   $(round(g.t_range[1], digits=2)) to $(round(g.t_range[2], digits=2)) $tu")
-    end
-    if haskey(g.metadata, :source)
-        println(io, "  Source:      $(g.metadata[:source])")
     end
 end
 
@@ -1124,19 +971,26 @@ end
 
     Spectrum(x, y)
     Spectrum(x, y, metadata::AbstractDict)
-    Spectrum(x, y; metadata...)
+    Spectrum(x, y; axis=:wavenumber, metadata...)
+    Spectrum(M::AbstractMatrix)
 
 Generic 1D steady-state spectrum: signal versus a spectral axis.
 
-Covers FTIR, Raman, UV-Vis, photoluminescence, cavity transmission, and any
-other steady-state 1D data. Axis semantics live in `metadata`:
+Covers FTIR, Raman, UV-Vis, photoluminescence, cavity transmission, transient-
+absorption slices, and any other 1D data. Axis semantics live in `metadata` as
+reserved `(quantity, unit)` tokens, from which labels are derived (never guessed):
 
-- `:xlabel` — x-axis display label (default: detected from the x range,
-  `"Wavenumber (cm⁻¹)"` or `"Wavelength (nm)"`)
-- `:ylabel` — y-axis display label (default: `"Signal"`)
-- `:filename` / `:source` — source file for [`source_file`](@ref)
-- `:cavity_length` — picked up as the default cavity length by
-  `fit_cavity_spectrum` (cavity-fitting tools; convention reserved here)
+- `:xquantity` / `:xunit`, `:yquantity` / `:yunit` — axis tokens (e.g.
+  `:wavenumber` / `:per_cm`). See `axis_label`.
+- `:xlabel` / `:ylabel` — literal label strings; override the tokens.
+- `:time_delay` (+ `:time_delay_unit`) — fixed delay of a slice from a
+  `TimeResolvedMatrix`; `:gate_start` / `:gate_end` (+ `:gate_unit`) — the time
+  window of a gated/integrated slice.
+- `:filename` / `:source` — source file for [`source_file`](@ref).
+- `:cavity_length` — default cavity length for `fit_cavity_spectrum`.
+
+With no axis metadata, labels fall back to the honest generic floor (`"x"` /
+`"Signal"`) — bare row-column data loads with no units guessed.
 
 Metadata keys are stored as `Symbol`s. The positional-dict and keyword
 constructors both accept `String` keys (converted via `Symbol`), so a
@@ -1171,20 +1025,35 @@ struct Spectrum <: AbstractSpectroscopyData
     end
 end
 
-function Spectrum(x::AbstractVector{<:Real}, y::AbstractVector{<:Real}; metadata...)
+function Spectrum(x::AbstractVector{<:Real}, y::AbstractVector{<:Real};
+                  axis::Union{Symbol,Nothing}=nothing, metadata...)
     md = Dict{Symbol,Any}(Symbol(k) => v for (k, v) in metadata)
+    if axis !== nothing
+        md[:xquantity] = axis
+        get!(md, :xunit, get(CANONICAL_UNIT, axis, :dimensionless))
+    end
     return Spectrum(x, y, md)
+end
+
+"""
+    Spectrum(M::AbstractMatrix)
+
+Build a `Spectrum` from an `N×2` matrix (column 1 = x, column 2 = y), so a plain
+row-column export goes straight in: `Spectrum(readdlm("homemade.txt"))`. Keyword
+arguments (`axis=`, metadata) are forwarded to the vector constructor.
+"""
+function Spectrum(M::AbstractMatrix{<:Real}; kwargs...)
+    size(M, 2) == 2 || throw(ArgumentError(
+        "Spectrum(M): expected an N×2 matrix (column 1 = x, column 2 = y); " *
+        "got size $(size(M))"))
+    return Spectrum(M[:, 1], M[:, 2]; kwargs...)
 end
 
 # AbstractSpectroscopyData interface
 xdata(s::Spectrum) = s.x
 ydata(s::Spectrum) = s.y
-function xlabel(s::Spectrum)
-    lbl = get(s.metadata, :xlabel, nothing)
-    isnothing(lbl) || return String(lbl)
-    return _detect_spectral_unit(s.x) == "cm⁻¹" ? "Wavenumber (cm⁻¹)" : "Wavelength (nm)"
-end
-ylabel(s::Spectrum) = String(get(s.metadata, :ylabel, "Signal"))
+xlabel(s::Spectrum) = _spectral_xlabel(s.metadata)
+ylabel(s::Spectrum) = _signal_label(s.metadata)
 source_file(s::Spectrum) = get(s.metadata, :filename, get(s.metadata, :source, ""))
 
 """
@@ -1196,9 +1065,8 @@ signal(s::Spectrum) = s.y
 
 function Base.show(io::IO, s::Spectrum)
     n = length(s.x)
-    unit = haskey(s.metadata, :xlabel) ? "" : " $(_detect_spectral_unit(s.x))"
     range = isempty(s.x) ? "" :
-        ", $(round(minimum(s.x), digits=1)) to $(round(maximum(s.x), digits=1))$unit"
+        ", $(round(minimum(s.x), digits=1)) to $(round(maximum(s.x), digits=1))"
     print(io, "Spectrum: $n points$range")
 end
 
@@ -1527,4 +1395,42 @@ function format_results(r::TASpectrumFit)
     println(io, "**R²:** $(round(r.rsquared, digits=5))")
 
     return String(take!(io))
+end
+
+# =============================================================================
+# Token edge accessors and opt-in unit guessing (metadata token contract §4/§6)
+# =============================================================================
+
+_metadata(s::Spectrum) = s.metadata
+_metadata(t::KineticTrace) = t.metadata
+_metadata(m::TimeResolvedMatrix) = m.metadata
+
+"""
+    xdata_unitful(d) ; ydata_unitful(d)
+
+Return the x / signal data with their unit tokens (`:xunit` / `:yunit`) attached
+via Unitful (§6). With no token the unit is `Unitful.NoUnits` and the plain
+`Float64` vector is returned unchanged. Opt-in; core storage stays unitless.
+"""
+xdata_unitful(d::AbstractSpectroscopyData) =
+    xdata(d) .* _unitful(Symbol(get(_metadata(d), :xunit, :dimensionless)))
+ydata_unitful(d::AbstractSpectroscopyData) =
+    ydata(d) .* _unitful(Symbol(get(_metadata(d), :yunit, :dimensionless)))
+
+"""
+    guess_units!(s::Spectrum) -> Spectrum
+
+Opt-in heuristic: infer the x-axis quantity/unit from the data magnitude and
+stamp `:xquantity`/`:xunit`. Nothing calls this automatically — labels never
+guess on the user's behalf (the no-guess rule).
+"""
+function guess_units!(s::Spectrum)
+    if _detect_spectral_unit(s.x) == "cm⁻¹"
+        s.metadata[:xquantity] = :wavenumber
+        get!(s.metadata, :xunit, :per_cm)
+    else
+        s.metadata[:xquantity] = :wavelength
+        get!(s.metadata, :xunit, :nm)
+    end
+    return s
 end

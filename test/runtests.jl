@@ -18,7 +18,6 @@ Random.seed!(42)
 
     @testset "Type hierarchy" begin
         @test KineticTrace <: AbstractSpectroscopyData
-        @test TASpectrum <: AbstractSpectroscopyData
         @test TimeResolvedMatrix <: AbstractSpectroscopyData
     end
 
@@ -31,11 +30,6 @@ Random.seed!(42)
         @test_throws ArgumentError KineticTrace([1.0, 2.0, 3.0], [1.0, 2.0], NaN, Dict{Symbol,Any}())
         # valid construction unaffected
         @test KineticTrace([1.0, 2.0], [0.1, 0.2]) isa KineticTrace
-
-        # TASpectrum: wavenumber and signal must have equal length
-        @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3])
-        @test_throws ArgumentError TASpectrum([2000.0, 2050.0], [0.1, 0.2, 0.3], NaN, Dict{Symbol,Any}())
-        @test TASpectrum([2000.0, 2050.0], [0.1, 0.2]) isa TASpectrum
 
         # TimeResolvedMatrix: data must be (n_time, n_wavelength)
         time = collect(0.0:1.0:10.0)        # 11 points
@@ -62,19 +56,8 @@ Random.seed!(42)
         @test ydata(trace) == [0.1, 0.5, 0.3]
         @test zdata(trace) === nothing
         @test xlabel(trace) == "Time (ps)"
-        @test ylabel(trace) == "ΔA"
+        @test ylabel(trace) == "Signal"
         @test is_matrix(trace) == false
-    end
-
-    @testset "AbstractSpectroscopyData interface - TASpectrum" begin
-        spec = TASpectrum([2000.0, 2050.0, 2100.0], [0.1, 0.5, 0.3])
-
-        @test xdata(spec) == [2000.0, 2050.0, 2100.0]
-        @test ydata(spec) == [0.1, 0.5, 0.3]
-        @test zdata(spec) === nothing
-        @test xlabel(spec) == "Wavenumber (cm⁻¹)"
-        @test ylabel(spec) == "ΔA"
-        @test is_matrix(spec) == false
     end
 
     @testset "SweepData" begin
@@ -108,14 +91,18 @@ Random.seed!(42)
         @test xdata(matrix) == wavelength
         @test ydata(matrix) == time
         @test zdata(matrix) === data
-        @test xlabel(matrix) == "Wavelength (nm)"
+        @test xlabel(matrix) == "x"
         @test ylabel(matrix) == "Time (ps)"
-        @test zlabel(matrix) == "ΔA"
+        @test zlabel(matrix) == "Signal"
         @test is_matrix(matrix) == true
 
-        # Test wavenumber detection
-        matrix_wn = TimeResolvedMatrix(time, [1900.0, 2000.0, 2100.0], data)
-        @test xlabel(matrix_wn) == "Wavenumber (cm⁻¹)"
+        # tokens drive the spectral + signal labels
+        matrix_tok = TimeResolvedMatrix(time, wavelength, data; metadata=Dict{Symbol,Any}(
+            :xquantity => :wavenumber, :xunit => :per_cm,
+            :yquantity => :delta_absorbance, :yunit => :mOD, :time_unit => :ns))
+        @test xlabel(matrix_tok) == "Wavenumber (cm⁻¹)"
+        @test ylabel(matrix_tok) == "Time (ns)"
+        @test zlabel(matrix_tok) == "ΔA (mOD)"
     end
 
     @testset "Extended interface - source_file, npoints, title" begin
@@ -132,9 +119,8 @@ Random.seed!(42)
         @test npoints(trace_empty) == 2
         @test title(trace_empty) == ""
 
-        # TASpectrum
-        spec = TASpectrum([2000.0, 2050.0, 2100.0], [0.1, 0.5, 0.3];
-                          metadata=Dict{Symbol,Any}(:filename => "spec.lvm"))
+        # Spectrum
+        spec = Spectrum([2000.0, 2050.0, 2100.0], [0.1, 0.5, 0.3]; filename="spec.lvm")
         @test source_file(spec) == "spec.lvm"
         @test npoints(spec) == 3
         @test title(spec) == "spec.lvm"
@@ -154,12 +140,6 @@ Random.seed!(42)
         trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3])
         @test delay(trace) === trace.time
         @test signal(trace) === trace.signal
-    end
-
-    @testset "Semantic accessors - TASpectrum" begin
-        spec = TASpectrum([2000.0, 2050.0, 2100.0], [0.1, 0.5, 0.3])
-        @test wavenumber(spec) === spec.wavenumber
-        @test signal(spec) === spec.signal
     end
 
     @testset "Semantic accessors - TimeResolvedMatrix" begin
@@ -184,11 +164,11 @@ Random.seed!(42)
         @test length(trace.time) == 5
         @test trace.wavelength ≈ 800.0
 
-        # Extract TASpectrum at time
+        # Extract Spectrum at time
         spec = matrix[t=2.0]
-        @test spec isa TASpectrum
-        @test length(spec.wavenumber) == 4
-        @test spec.time_delay ≈ 2.0
+        @test spec isa Spectrum
+        @test length(xdata(spec)) == 4
+        @test spec.metadata[:time_delay] ≈ 2.0
 
         # Error cases
         @test_throws ErrorException matrix[]
@@ -244,13 +224,16 @@ Random.seed!(42)
         @test npoints(s) == 5
         @test signal(s) == s.y
 
-        # Label fallbacks: 1500-1504 detected as wavenumber
-        @test xlabel(s) == "Wavenumber (cm⁻¹)"
+        # No-guess rule: bare row-column data asserts only what it was told.
+        @test xlabel(s) == "x"
         @test ylabel(s) == "Signal"
 
-        # nm-range x detected as wavelength
-        s_nm = Spectrum([500.0, 600.0], [1.0, 2.0])
-        @test xlabel(s_nm) == "Wavelength (nm)"
+        # tokens drive the label when present
+        s_tok = Spectrum([1500.0, 1501.0], [1.0, 2.0];
+                         xquantity=:wavenumber, xunit=:per_cm,
+                         yquantity=:absorbance, yunit=:OD)
+        @test xlabel(s_tok) == "Wavenumber (cm⁻¹)"
+        @test ylabel(s_tok) == "Absorbance (OD)"
 
         # Metadata labels win over detection
         s_lbl = Spectrum([1.0, 2.0], [3.0, 4.0]; xlabel="Energy (eV)", ylabel="Counts")
@@ -271,7 +254,7 @@ Random.seed!(42)
                      sample="test", cavity_length=12e-4)
         @test occursin("Spectrum", sprint(show, s))
         @test occursin("5 points", sprint(show, s))
-        @test occursin("cm⁻¹", sprint(show, s))
+        @test occursin("1500.0 to 1504.0", sprint(show, s))
         s_xlbl = Spectrum([1.0, 2.0], [3.0, 4.0]; xlabel="Energy (eV)")
         @test !occursin("nm", sprint(show, s_xlbl))
         long = sprint(show, MIME("text/plain"), s)
@@ -316,15 +299,13 @@ Random.seed!(42)
         @test estimate_snr(s) == estimate_snr(y)
 
         # Works for other 1D family members too
-        g = GatedSpectrum(x, y)
+        g = Spectrum(x, y)
         @test find_peaks(g)[1].position == pks_vec[1].position
         @test band_area(g, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
 
-        # KineticTrace and TASpectrum flow through the same generic methods
+        # KineticTrace flows through the same generic methods
         kt = KineticTrace(x, y)
         @test estimate_snr(kt) == estimate_snr(y)
-        ta = TASpectrum(x, y)
-        @test band_area(ta, 480.0, 560.0) == band_area(x, y, 480.0, 560.0)
 
         # 2D guard
         m = TimeResolvedMatrix([0.0, 1.0], [700.0, 750.0], rand(2, 2))
@@ -390,6 +371,40 @@ Random.seed!(42)
         @test t_pct.metadata[:ylabel] == "Transmittance (%)"
     end
 
+    @testset "Spectrum T→A token-driven semantics" begin
+        # Scale inferred from the :yunit token (no explicit percent kwarg)
+        s_pct = Spectrum([1000.0, 2000.0, 3000.0], [95.0, 50.0, 10.0];
+                         yquantity=:transmittance, yunit=:percent)
+        a = transmittance_to_absorbance(s_pct)
+        @test a.y ≈ [-log10(0.95), -log10(0.50), 1.0]
+        @test a.metadata[:yquantity] == :absorbance
+        @test a.metadata[:yunit] == :OD
+
+        # Explicit percent overrides the token
+        @test transmittance_to_absorbance(s_pct; percent=false).y ≈ -log10.([95.0, 50.0, 10.0])
+
+        # :fraction token → fractional
+        s_frac = Spectrum([1000.0], [0.5]; yquantity=:transmittance, yunit=:fraction)
+        @test transmittance_to_absorbance(s_frac).y ≈ [-log10(0.5)]
+
+        # Nonpositive transmittance → NaN with a warning (saturated bands)
+        s_zero = Spectrum([1000.0], [0.0]; yquantity=:transmittance, yunit=:percent)
+        az = @test_logs (:warn, r"nonpositive") transmittance_to_absorbance(s_zero)
+        @test isnan(only(az.y))
+
+        # t→a on a non-transmittance spectrum is rejected (no silent guessing)
+        @test_throws ArgumentError transmittance_to_absorbance(a)
+
+        # Round trip back to %T flips the tokens
+        t = absorbance_to_transmittance(a; percent=true)
+        @test t.y ≈ [95.0, 50.0, 10.0]
+        @test t.metadata[:yquantity] == :transmittance
+        @test t.metadata[:yunit] == :percent
+
+        # a→t on a non-absorbance spectrum is rejected, symmetric with t→a
+        @test_throws ArgumentError absorbance_to_transmittance(s_pct)
+    end
+
     @testset "Spectrum arithmetic returns Spectrum" begin
         x = collect(1500.0:1.0:1599.0)
         ya = @. 1.0 + 0.01 * (x - 1500)
@@ -438,7 +453,7 @@ Random.seed!(42)
         @test it.metadata[:sample] == "A"
 
         # Mixed family types still return NamedTuples (generic path)
-        g = GatedSpectrum(x, yb)
+        g = KineticTrace(x, yb)
         nt = subtract_spectrum(a, g)
         @test nt isa NamedTuple
         @test nt.y ≈ ya .- yb
@@ -966,7 +981,7 @@ Random.seed!(42)
         gsb = @. 0.008 * exp(-4 * log(2) * ((ν - 2060.0) / 18.0)^2)
         signal = esa .- gsb
 
-        spec = TASpectrum(ν, signal)
+        spec = Spectrum(ν, signal)
         result = fit_ta_spectrum(spec; region=(1980, 2120))
 
         @test result isa TASpectrumFit
@@ -999,7 +1014,7 @@ Random.seed!(42)
         se = @. 0.003 * exp(-4 * log(2) * ((ν - 2100.0) / 25.0)^2)
         signal = esa .- gsb .- se
 
-        spec = TASpectrum(ν, signal)
+        spec = Spectrum(ν, signal)
         result = fit_ta_spectrum(spec; peaks=[:esa, :gsb, :se])
 
         @test length(result.peaks) == 3
@@ -1015,7 +1030,7 @@ Random.seed!(42)
         gsb = @. 0.008 * exp(-4 * log(2) * ((ν - 2060.0) / 18.0)^2)
         signal = esa .- gsb
 
-        spec = TASpectrum(ν, signal)
+        spec = Spectrum(ν, signal)
         result = fit_ta_spectrum(spec; peaks=[(:esa, lorentzian), (:gsb, gaussian)],
                                  region=(1980, 2120))
 
@@ -1035,7 +1050,7 @@ Random.seed!(42)
         gsb3 = @. 0.003 * exp(-4 * log(2) * ((ν - 2070.0) / 8.0)^2)
         signal = (esa1 .+ esa2 .+ esa3) .- (gsb1 .+ gsb2 .+ gsb3)
 
-        spec = TASpectrum(ν, signal)
+        spec = Spectrum(ν, signal)
         result = fit_ta_spectrum(spec; peaks=[:esa, :esa, :esa, :gsb, :gsb, :gsb])
 
         @test length(result.peaks) == 6
@@ -1156,9 +1171,9 @@ Random.seed!(42)
         @test result.x == ν
         @test result.y ≈ y1 .- y2
 
-        # Typed interface (TASpectrum)
-        spec1 = TASpectrum(ν, y1)
-        spec2 = TASpectrum(ν, y2)
+        # Typed interface (Spectrum)
+        spec1 = Spectrum(ν, y1)
+        spec2 = Spectrum(ν, y2)
         result_typed = subtract_spectrum(spec1, spec2)
         @test result_typed.x == ν
         @test result_typed.y ≈ y1 .- y2
@@ -3127,7 +3142,7 @@ Random.seed!(42)
             0.02 .* randn(length(x))
         fit = fit_peaks(x, y; n_peaks=2, model=gaussian)
 
-        spec = TASpectrum(x, y)
+        spec = Spectrum(x, y)
         @test lines(spec) isa Makie.FigureAxisPlot
         steady = Spectrum(x, y; ylabel="Transmittance")
         @test lines(steady) isa Makie.FigureAxisPlot
@@ -3145,53 +3160,24 @@ Random.seed!(42)
     end
 
     @testset "Metadata-driven labels" begin
-        md = Dict{Symbol,Any}(:time_unit => "ns", :signal_label => "Counts")
-        tr = KineticTrace([0.0, 1.0], [1.0, 0.5]; metadata=md)
+        md_tr = Dict{Symbol,Any}(:xunit => :ns, :yquantity => :intensity, :yunit => :counts)
+        tr = KineticTrace([0.0, 1.0], [1.0, 0.5]; metadata=md_tr)
         @test xlabel(tr) == "Time (ns)"
-        @test ylabel(tr) == "Counts"
+        @test ylabel(tr) == "Intensity (counts)"
         @test occursin("ns", sprint(show, tr))
 
         tr_default = KineticTrace([0.0, 1.0], [1.0, 0.5])
         @test xlabel(tr_default) == "Time (ps)"
-        @test ylabel(tr_default) == "ΔA"
+        @test ylabel(tr_default) == "Signal"
 
+        md = Dict{Symbol,Any}(:time_unit => :ns, :yquantity => :intensity, :yunit => :counts)
         m = TimeResolvedMatrix([0.0, 1.0], [500.0, 510.0], [1.0 2.0; 3.0 4.0]; metadata=md)
         @test ylabel(m) == "Time (ns)"
-        @test zlabel(m) == "Counts"
+        @test zlabel(m) == "Intensity (counts)"
         @test occursin("ns", sprint(show, m))
         @test occursin("ns", sprint(show, MIME("text/plain"), tr))
         @test occursin("ns", sprint(show, MIME("text/plain"), m))
         @test xlabel(m[λ=505.0]) == "Time (ns)"
-    end
-
-    @testset "GatedSpectrum" begin
-        g = GatedSpectrum([500.0, 510.0, 520.0], [1.0, 2.0, 1.5];
-                          t_range=(0.0, 5.0),
-                          metadata=Dict{Symbol,Any}(:time_unit => "ns"))
-        @test g isa AbstractSpectroscopyData
-        @test xdata(g) == [500.0, 510.0, 520.0]
-        @test ydata(g) == [1.0, 2.0, 1.5]
-        @test wavelength(g) == g.wavelength
-        @test signal(g) == g.signal
-        @test g.t_range == (0.0, 5.0)
-        @test xlabel(g) == "Wavelength (nm)"
-        @test occursin("0.0 to 5.0 ns", sprint(show, g))
-        @test_throws ArgumentError GatedSpectrum([1.0, 2.0], [1.0])
-        g2 = GatedSpectrum([500.0], [1.0])
-        @test all(isnan, g2.t_range)
-        @test ylabel(g) == "ΔA"
-        g_pl = GatedSpectrum([500.0], [1.0]; metadata=Dict{Symbol,Any}(:signal_label => "Counts"))
-        @test ylabel(g_pl) == "Counts"
-        g_wn = GatedSpectrum([1500.0, 1600.0], [1.0, 2.0])
-        @test xlabel(g_wn) == "Wavenumber (cm⁻¹)"
-        @test occursin("Time gate", sprint(show, MIME("text/plain"), g))
-        g_empty = GatedSpectrum(Float64[], Float64[])
-        @test xlabel(g_empty) == "Wavelength (nm)"
-        @test occursin("0 points", sprint(show, g_empty))
-        @test sprint(show, MIME("text/plain"), g_empty) isa String
-        @test occursin("500.0 to 520.0 nm", sprint(show, g))
-        g_src = GatedSpectrum([500.0], [1.0]; metadata=Dict{Symbol,Any}(:source => "demo.img"))
-        @test occursin("demo.img", sprint(show, MIME("text/plain"), g_src))
     end
 
     @testset "TimeResolvedMatrix slices" begin
@@ -3200,7 +3186,7 @@ Random.seed!(42)
         data = [1.0 2.0 3.0;
                 4.0 5.0 6.0;
                 7.0 8.0 9.0]   # rows = time, cols = wavelength
-        md = Dict{Symbol,Any}(:signal_label => "Counts", :time_unit => "ns")
+        md = Dict{Symbol,Any}(:yquantity => :intensity, :yunit => :counts, :time_unit => :ns)
         m = TimeResolvedMatrix(t, wl, data; metadata=md)
 
         # nearest single column
@@ -3208,7 +3194,8 @@ Random.seed!(42)
         @test tr isa KineticTrace
         @test tr.signal == [2.0, 5.0, 8.0]
         @test tr.wavelength == 510.0
-        @test tr.metadata[:signal_label] == "Counts"
+        @test tr.metadata[:yquantity] == :intensity      # signal token inherited
+        @test xlabel(tr) == "Time (ns)"                  # :time_unit remapped to :xunit
 
         # band mean over all three columns (510 ± 10 → [500, 520])
         tr_band = kinetic_trace(m; wavelength=510.0, band=20.0)
@@ -3216,35 +3203,40 @@ Random.seed!(42)
         @test tr_band.wavelength == 510.0
         @test tr_band.metadata[:band] == 20.0
         @test !haskey(tr.metadata, :band)
-        @test integrate_time(m).metadata[:signal_label] == "Counts"
+        @test integrate_time(m).metadata[:yquantity] == :intensity
         @test_throws ArgumentError kinetic_trace(m; wavelength=NaN)
 
-        # empty band falls back to nearest column (deterministic: argmin ties break to first)
+        # empty band falls back to nearest column
         tr_fb = kinetic_trace(m; wavelength=505.0, band=2.0)
         @test tr_fb.signal == [1.0, 4.0, 7.0]
         @test tr_fb.wavelength == 500.0
 
-        # nearest single row
+        # nearest single row → Spectrum with gate tokens
         sp = spectral_slice(m; time=1.2)
-        @test sp isa GatedSpectrum
-        @test sp.signal == [4.0, 5.0, 6.0]
-        @test sp.t_range == (1.0, 1.0)
-        @test sp.metadata[:time_unit] == "ns"
+        @test sp isa Spectrum
+        @test sp.y == [4.0, 5.0, 6.0]
+        @test sp.metadata[:gate_start] == 1.0
+        @test sp.metadata[:gate_end] == 1.0
+        @test sp.metadata[:gate_unit] == :ns
+        @test zlabel(m) == "Intensity (counts)"
 
-        # gated mean over rows 2:3 (1.5 ± 1 → [0.5, 2.5])
+        # gated mean over rows 2:3
         sp_win = spectral_slice(m; time=1.5, window=2.0)
-        @test sp_win.signal == [5.5, 6.5, 7.5]
-        @test sp_win.t_range == (1.0, 2.0)
+        @test sp_win.y == [5.5, 6.5, 7.5]
+        @test sp_win.metadata[:gate_start] == 1.0
+        @test sp_win.metadata[:gate_end] == 2.0
 
         # time-integrated spectrum (sum)
         g = integrate_time(m)
-        @test g isa GatedSpectrum
-        @test g.signal == [12.0, 15.0, 18.0]
-        @test g.t_range == (0.0, 2.0)
+        @test g isa Spectrum
+        @test g.y == [12.0, 15.0, 18.0]
+        @test g.metadata[:gate_start] == 0.0
+        @test g.metadata[:gate_end] == 2.0
 
         g2 = integrate_time(m; t_range=(1.0, 2.0))
-        @test g2.signal == [11.0, 13.0, 15.0]
-        @test g2.t_range == (1.0, 2.0)
+        @test g2.y == [11.0, 13.0, 15.0]
+        @test g2.metadata[:gate_start] == 1.0
+        @test g2.metadata[:gate_end] == 2.0
         @test_throws ArgumentError integrate_time(m; t_range=(10.0, 20.0))
 
         # KineticTrace extracted from a matrix carries :source, not :filename;
@@ -3446,5 +3438,5 @@ Random.seed!(42)
     end
 
     include("test_cavity.jl")
-
+    include("tokens.jl")
 end

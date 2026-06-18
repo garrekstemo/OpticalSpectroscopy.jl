@@ -587,8 +587,7 @@ function fit_global(matrix::TimeResolvedMatrix; n_exp::Int=1, irf_width::Float64
         push!(actual_wavelengths, tr.wavelength)
     end
 
-    wl_unit = _detect_wavelength_unit(matrix)
-    labels = [string(round(wl, digits=1), " ", wl_unit) for wl in actual_wavelengths]
+    labels = [string(round(wl, digits=1)) for wl in actual_wavelengths]
 
     result = fit_global(traces; n_exp=n_exp, irf_width=irf_width, labels=labels)
 
@@ -841,7 +840,7 @@ function _ta_initial_guesses(ν, y, peak_specs, signs, npps, fit_offset)
 end
 
 """
-    fit_ta_spectrum(spec::TASpectrum; kwargs...) -> TASpectrumFit
+    fit_ta_spectrum(spec::Spectrum; kwargs...) -> TASpectrumFit
 
 Fit a transient absorption spectrum with N peaks of arbitrary lineshape.
 
@@ -881,20 +880,22 @@ predict(result, ν)       # full fitted curve
 predict_peak(result, 1)  # single peak contribution
 ```
 """
-function fit_ta_spectrum(spec::TASpectrum;
+function fit_ta_spectrum(spec::Spectrum;
                          peaks::AbstractVector=[:esa, :gsb],
                          model::Function=gaussian,
                          region=nothing,
                          fit_offset::Bool=false,
                          p0::Union{Nothing, AbstractVector}=nothing)
 
+    xv = xdata(spec)
+    yv = ydata(spec)
     if isnothing(region)
-        ν = collect(Float64, spec.wavenumber)
-        y = collect(Float64, spec.signal)
+        ν = collect(Float64, xv)
+        y = collect(Float64, yv)
     else
-        mask = (spec.wavenumber .>= region[1]) .& (spec.wavenumber .<= region[2])
-        ν = collect(Float64, spec.wavenumber[mask])
-        y = collect(Float64, spec.signal[mask])
+        mask = (xv .>= region[1]) .& (xv .<= region[2])
+        ν = collect(Float64, xv[mask])
+        y = collect(Float64, yv[mask])
     end
 
     peak_specs = if eltype(peaks) <: Symbol
@@ -967,7 +968,7 @@ function predict(fit::TASpectrumFit, x::AbstractVector)
     return y
 end
 
-predict(fit::TASpectrumFit, spec::TASpectrum) = predict(fit, spec.wavenumber)
+predict(fit::TASpectrumFit, spec::Spectrum) = predict(fit, xdata(spec))
 
 function predict_peak(fit::TASpectrumFit, i::Int)
     return predict_peak(fit, i, fit._x)

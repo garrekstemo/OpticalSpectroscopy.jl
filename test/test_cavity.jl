@@ -407,6 +407,35 @@ end
         @test length(res) == length(nu)
     end
 
+    @testset "Spectrum dispatch: tokens drive L and percent" begin
+        nu = collect(1900.0:0.5:2200.0)
+        L = 12.0e-4
+        T = compute_cavity_transmittance(nu, [2055.0], [23.0], [3000.0],
+                                         0.92, L, 1.4, 0.3)
+
+        # %T spectrum: :yunit token triggers /100; :cavity_length supplies L.
+        spec = Spectrum(nu, 100 .* T;
+            xquantity=:wavenumber, xunit=:per_cm,
+            yquantity=:transmittance, yunit=:percent, cavity_length=L)
+        result = fit_cavity_spectrum(spec;
+            oscillators=[(nu0=2055.0, Gamma=23.0)], n_bg=1.4)
+        @test result isa CavityFitResult
+        @test result.rsquared > 0.99
+        @test isapprox(result.R, 0.92, atol=0.05)
+
+        # Explicit L overrides the token; explicit percent overrides :yunit.
+        spec_frac = Spectrum(nu, T;
+            yquantity=:transmittance, yunit=:fraction)
+        result2 = fit_cavity_spectrum(spec_frac;
+            oscillators=[(nu0=2055.0, Gamma=23.0)], n_bg=1.4, L=L)
+        @test result2.rsquared > 0.99
+
+        # No L token and no L kwarg: the vector method's required-keyword error.
+        spec_bare = Spectrum(nu, T; yquantity=:transmittance, yunit=:fraction)
+        @test_throws UndefKeywordError fit_cavity_spectrum(spec_bare;
+            oscillators=[(nu0=2055.0, Gamma=23.0)], n_bg=1.4)
+    end
+
     @testset "Region parameter" begin
         nu = collect(1900.0:0.5:2200.0)
         T = compute_cavity_transmittance(nu, [2055.0], [23.0], [3000.0],

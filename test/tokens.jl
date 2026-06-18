@@ -1,0 +1,112 @@
+@testset "Metadata token contract" begin
+
+    @testset "axis_label" begin
+        @test axis_label(:wavenumber, :per_cm) == "Wavenumber (cm⁻¹)"
+        @test axis_label(:wavelength, :nm) == "Wavelength (nm)"
+        @test axis_label(:time, :ps) == "Time (ps)"
+        @test axis_label(:time, :ns) == "Time (ns)"
+        @test axis_label(:absorbance, :OD) == "Absorbance (OD)"
+        @test axis_label(:intensity, :counts) == "Intensity (counts)"
+        @test axis_label(:delta_absorbance, :dimensionless) == "ΔA"
+        @test axis_label(:transmittance, :fraction) == "Transmittance"
+        @test axis_label(:foo_bar, :baz) == "Foo bar (baz)"
+    end
+
+    @testset "label resolvers (dict helpers)" begin
+        @test OpticalSpectroscopy._spectral_xlabel(Dict(:xlabel => "Energy (eV)")) == "Energy (eV)"
+        @test OpticalSpectroscopy._signal_label(Dict(:ylabel => "Counts")) == "Counts"
+        @test OpticalSpectroscopy._spectral_xlabel(Dict(:xquantity => :wavenumber, :xunit => :per_cm)) == "Wavenumber (cm⁻¹)"
+        @test OpticalSpectroscopy._signal_label(Dict(:yquantity => :absorbance, :yunit => :OD)) == "Absorbance (OD)"
+        @test OpticalSpectroscopy._spectral_xlabel(Dict{Symbol,Any}()) == "x"
+        @test OpticalSpectroscopy._signal_label(Dict{Symbol,Any}()) == "Signal"
+        @test OpticalSpectroscopy._time_label(Dict(:xunit => :ns), :xunit) == "Time (ns)"
+        @test OpticalSpectroscopy._time_label(Dict{Symbol,Any}(), :time_unit) == "Time (ps)"
+    end
+
+    @testset "is_canonical / validate_tokens" begin
+        @test is_canonical(:technique, :ftir)
+        @test !is_canonical(:technique, :nmr)
+        @test is_canonical(:quantity, :wavenumber)
+        @test is_canonical(:quantity, :absorbance)
+        @test !is_canonical(:quantity, :bogus)
+        @test is_canonical(:unit, :per_cm)
+        @test !is_canonical(:unit, :furlong)
+        @test !is_canonical(:nonsense_slot, :anything)
+
+        good = Dict{Symbol,Any}(:technique => :ftir, :xquantity => :wavenumber,
+                                :xunit => :per_cm, :yquantity => :absorbance, :yunit => :OD)
+        @test validate_tokens(good)
+        bad = Dict{Symbol,Any}(:xunit => :furlong)
+        @test (@test_logs (:warn,) validate_tokens(bad)) == false
+        @test validate_tokens(Dict{Symbol,Any}())
+    end
+
+    @testset "normalize_unit / normalize_quantity" begin
+        @test normalize_unit("NANOMETERS") == :nm
+        @test normalize_unit("1/cm") == :per_cm
+        @test normalize_unit("cm-1") == :per_cm
+        @test normalize_unit("%T") == :percent
+        @test normalize_unit("") == :dimensionless
+        @test normalize_unit("Bananas Per Furlong") == :bananas_per_furlong
+
+        @test normalize_quantity("ABSORBANCE") == :absorbance
+        @test normalize_quantity("%T") == :transmittance
+        @test normalize_quantity("Raman Shift") == :raman_shift
+        @test normalize_quantity("interferrogram") == :interferogram   # real JASCO misspelling
+        @test normalize_quantity("Mystery") == :mystery
+    end
+
+    @testset "_unitful bridge / CANONICAL_UNIT" begin
+        @test OpticalSpectroscopy._unitful(:per_cm) === u"cm^-1"
+        @test OpticalSpectroscopy._unitful(:nm) === u"nm"
+        @test OpticalSpectroscopy._unitful(:ps) === u"ps"
+        @test OpticalSpectroscopy._unitful(:OD) === Unitful.NoUnits
+        @test OpticalSpectroscopy._unitful(:dimensionless) === Unitful.NoUnits
+        @test [1.0, 2.0] .* OpticalSpectroscopy._unitful(:counts) == [1.0, 2.0]
+        @test OpticalSpectroscopy.CANONICAL_UNIT[:wavenumber] == :per_cm
+        @test OpticalSpectroscopy.CANONICAL_UNIT[:wavelength] == :nm
+        @test OpticalSpectroscopy.CANONICAL_UNIT[:delta_absorbance] == :mOD
+    end
+
+    @testset "Spectrum minimal-input path" begin
+        M = [10.0 100.0; 20.0 200.0; 30.0 300.0]
+        sm = Spectrum(M)
+        @test xdata(sm) == [10.0, 20.0, 30.0]
+        @test ydata(sm) == [100.0, 200.0, 300.0]
+        @test xlabel(sm) == "x"
+        @test_throws ArgumentError Spectrum(rand(3, 3))
+
+        sa = Spectrum([1.0, 2.0], [3.0, 4.0]; axis=:wavenumber)
+        @test sa.metadata[:xquantity] == :wavenumber
+        @test sa.metadata[:xunit] == :per_cm
+        @test xlabel(sa) == "Wavenumber (cm⁻¹)"
+
+        sa2 = Spectrum([1.0, 2.0], [3.0, 4.0]; axis=:wavelength, xunit=:um)
+        @test xlabel(sa2) == "Wavelength (µm)"
+
+        smt = Spectrum(M; axis=:wavelength, sample="demo")
+        @test xlabel(smt) == "Wavelength (nm)"
+        @test smt.metadata[:sample] == "demo"
+    end
+
+    @testset "edge accessors and opt-in guess_units!" begin
+        s = Spectrum([1500.0, 1600.0], [1.0, 2.0]; axis=:wavenumber, yquantity=:absorbance, yunit=:OD)
+        @test xdata_unitful(s) == [1500.0, 1600.0] .* u"cm^-1"
+        @test ydata_unitful(s) == [1.0, 2.0]          # OD -> NoUnits
+
+        s_bare = Spectrum([1.0, 2.0], [3.0, 4.0])
+        @test xdata_unitful(s_bare) == [1.0, 2.0]
+
+        s_guess = Spectrum(collect(1500.0:1.0:1504.0), ones(5))
+        @test xlabel(s_guess) == "x"
+        guess_units!(s_guess)
+        @test s_guess.metadata[:xquantity] == :wavenumber
+        @test xlabel(s_guess) == "Wavenumber (cm⁻¹)"
+
+        s_nm = Spectrum([500.0, 600.0], [1.0, 2.0])
+        guess_units!(s_nm)
+        @test s_nm.metadata[:xquantity] == :wavelength
+        @test xlabel(s_nm) == "Wavelength (nm)"
+    end
+
+end

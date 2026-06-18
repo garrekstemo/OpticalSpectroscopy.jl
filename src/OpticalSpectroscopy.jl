@@ -2,9 +2,7 @@
 OpticalSpectroscopy.jl — General-purpose spectroscopy analysis toolkit.
 
 Provides data types, fitting routines, baseline correction, peak detection,
-unit conversions, and utility functions for spectroscopic data analysis,
-plus cavity & polariton analysis (Fabry-Pérot transmittance, coupled-oscillator
-dispersion fitting, Hopfield coefficients).
+unit conversions, and utility functions for spectroscopic data analysis.
 
 Extracted from QPS.jl to serve as a standalone, reusable foundation.
 """
@@ -25,7 +23,9 @@ using JSON
 import PhysicalConstants.CODATA2022: h, c_0, ħ
 using SpecialFunctions: gamma
 
-# Source files (order matters: types before functions that use them)
+# Source files (order matters: tokens (pure vocab) before types; types before
+# functions that use them)
+include("tokens.jl")
 include("types.jl")
 include("timeresolved.jl")
 include("units.jl")
@@ -47,7 +47,9 @@ include("cosmic_rays.jl")
 export AbstractSpectroscopyData
 export xdata, ydata, zdata, xlabel, ylabel, zlabel, is_matrix
 export source_file, npoints, title
-export Spectrum, KineticTrace, TASpectrum, TimeResolvedMatrix, GatedSpectrum, SweepData
+export xdata_unitful, ydata_unitful, guess_units!
+export axis_label, is_canonical, validate_tokens, normalize_unit, normalize_quantity
+export Spectrum, KineticTrace, TimeResolvedMatrix, SweepData
 export delay, signal, wavenumber, wavelength
 
 # Time-resolved slice extraction

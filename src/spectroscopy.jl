@@ -39,15 +39,31 @@ function transmittance_to_absorbance(T::AbstractVector; percent::Bool=false)
 end
 
 """
-    transmittance_to_absorbance(s::Spectrum; percent=false) -> Spectrum
+    transmittance_to_absorbance(s::Spectrum; percent=nothing) -> Spectrum
 
-Convert a transmittance [`Spectrum`](@ref) to absorbance. Sets
-`metadata[:ylabel] = "Absorbance"` on the result, overwriting any prior value.
+Convert a transmittance [`Spectrum`](@ref) to absorbance, `A = -log10(T)`.
+
+When `percent` is `nothing` (default) the transmittance scale is inferred from
+the `:yunit` token (`:percent` → percent, otherwise fractional); pass `percent`
+explicitly to override. Throws if `:yquantity` is present and is not
+`:transmittance` (no silent guessing). Nonpositive transmittance (saturated
+bands) maps to `NaN` with a warning rather than throwing. Sets the result's
+`:ylabel` to `"Absorbance"` and updates the `:yquantity`/`:yunit` tokens when
+present.
 """
-function transmittance_to_absorbance(s::Spectrum; percent::Bool=false)
+function transmittance_to_absorbance(s::Spectrum; percent::Union{Bool,Nothing}=nothing)
+    q = get(s.metadata, :yquantity, nothing)
+    isnothing(q) || Symbol(q) === :transmittance ||
+        throw(ArgumentError("not a transmittance spectrum (yquantity = $(repr(q)))"))
+    pct = something(percent, Symbol(get(s.metadata, :yunit, :fraction)) === :percent)
+    tf = pct ? s.y ./ 100 : s.y
+    any(t -> t <= 0, tf) && @warn "nonpositive transmittance mapped to NaN"
+    y = [t > 0 ? -log10(t) : NaN for t in tf]
     md = copy(s.metadata)
     md[:ylabel] = "Absorbance"
-    return Spectrum(s.x, transmittance_to_absorbance(s.y; percent=percent), md)
+    haskey(md, :yquantity) && (md[:yquantity] = :absorbance)
+    haskey(md, :yunit) && (md[:yunit] = :OD)
+    return Spectrum(s.x, y, md)
 end
 
 """
@@ -67,13 +83,22 @@ end
 """
     absorbance_to_transmittance(s::Spectrum; percent=false) -> Spectrum
 
-Convert an absorbance [`Spectrum`](@ref) to transmittance. Sets
-`metadata[:ylabel]` to `"Transmittance"` (or `"Transmittance (%)"` when
-`percent=true`) on the result, overwriting any prior value.
+Convert an absorbance [`Spectrum`](@ref) to transmittance, `T = 10^(-A)`.
+
+`percent` selects the *output* scale: `true` gives percent transmittance, `false`
+(default) fractional. Throws if `:yquantity` is present and is not `:absorbance`
+(mirrors [`transmittance_to_absorbance`](@ref) — no silent guessing). Sets the
+result's `:ylabel` accordingly and updates the `:yquantity`/`:yunit` tokens when
+present.
 """
 function absorbance_to_transmittance(s::Spectrum; percent::Bool=false)
+    q = get(s.metadata, :yquantity, nothing)
+    isnothing(q) || Symbol(q) === :absorbance ||
+        throw(ArgumentError("not an absorbance spectrum (yquantity = $(repr(q)))"))
     md = copy(s.metadata)
     md[:ylabel] = percent ? "Transmittance (%)" : "Transmittance"
+    haskey(md, :yquantity) && (md[:yquantity] = :transmittance)
+    haskey(md, :yunit) && (md[:yunit] = percent ? :percent : :fraction)
     return Spectrum(s.x, absorbance_to_transmittance(s.y; percent=percent), md)
 end
 

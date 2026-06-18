@@ -663,6 +663,27 @@ function fit_cavity_spectrum(nu::AbstractVector, T_data::AbstractVector;
 end
 
 """
+    fit_cavity_spectrum(s::Spectrum; L=nothing, percent=nothing, kwargs...)
+
+Fit a cavity transmission [`Spectrum`](@ref). Pulls wavenumber/transmittance from
+the spectrum's axes, converts percent transmittance to fractional when the
+`:yunit` token is `:percent` (override with the `percent` keyword), and uses the
+`:cavity_length` metadata token as `L` when it is not passed explicitly. Remaining
+keywords forward to the vector method; with no `L` available the vector method's
+`UndefKeywordError(:L)` propagates.
+"""
+function fit_cavity_spectrum(s::Spectrum; L::Union{Real,Nothing}=nothing,
+                             percent::Union{Bool,Nothing}=nothing, kwargs...)
+    nu = xdata(s)
+    T = ydata(s)
+    pct = something(percent, Symbol(get(s.metadata, :yunit, :fraction)) === :percent)
+    pct && (T = T ./ 100)
+    Lval = isnothing(L) ? get(s.metadata, :cavity_length, nothing) : L
+    return isnothing(Lval) ? fit_cavity_spectrum(nu, T; kwargs...) :
+                             fit_cavity_spectrum(nu, T; L=Lval, kwargs...)
+end
+
+"""
     fit_dispersion(lp_angles, lp_positions, up_angles, up_positions;
                    molecular_modes, E0_init=nothing, n_eff_init=1.5, Omega_init=20.0)
 

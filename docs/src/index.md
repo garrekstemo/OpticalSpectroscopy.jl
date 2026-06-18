@@ -2,7 +2,7 @@
 
 **Spectroscopy analysis for Julia — steady-state and ultrafast.**
 
-For steady-state work, OpticalSpectroscopy provides a generic `Spectrum` type plus peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`KineticTrace`, `TASpectrum`, `TimeResolvedMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments. For light–matter strong coupling work, it provides cavity and polariton analysis (Fabry-Pérot transmittance modeling, dispersion fitting, Hopfield coefficients).
+For steady-state work, OpticalSpectroscopy provides a generic `Spectrum` type plus peak fitting (Gaussian, Lorentzian, Voigt, Fano), baseline correction, peak detection, spectral transforms (Kramers-Kronig, Tauc, Kubelka-Munk), and unit conversions for FTIR, Raman, and UV-vis data. For ultrafast work, it provides typed data structures (`KineticTrace`, `TimeResolvedMatrix`), global fitting with decay-associated spectra, IRF-convolved exponential fitting, and chirp correction for broadband pump-probe experiments.
 
 ## Installation
 
@@ -64,7 +64,7 @@ decay_time_to_linewidth(1.0u"ps")    # -> linewidth in meV (default output unit)
 
 | Module | What it does |
 |--------|-------------|
-| **TA data types** | `KineticTrace`, `TASpectrum`, `TimeResolvedMatrix` with semantic axis indexing (`m[λ=800]`, `m[t=1.0]`) |
+| **Data types** | `Spectrum`, `KineticTrace`, `TimeResolvedMatrix` with semantic axis indexing (`m[λ=800]`, `m[t=1.0]`) |
 | **Exponential decay** | Single/multi-exponential with optional IRF convolution |
 | **Global fitting** | Shared parameters across traces, decay-associated spectra |
 | **TA spectrum fitting** | N-peak model with ESA/GSB/SE labels and sign convention |
