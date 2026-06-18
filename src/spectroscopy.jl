@@ -84,11 +84,17 @@ end
     absorbance_to_transmittance(s::Spectrum; percent=false) -> Spectrum
 
 Convert an absorbance [`Spectrum`](@ref) to transmittance, `T = 10^(-A)`.
-`percent=true` gives percent transmittance, `false` (default) fractional. Sets
-the result's `:ylabel` accordingly and updates the `:yquantity`/`:yunit` tokens
-when present.
+
+`percent` selects the *output* scale: `true` gives percent transmittance, `false`
+(default) fractional. Throws if `:yquantity` is present and is not `:absorbance`
+(mirrors [`transmittance_to_absorbance`](@ref) — no silent guessing). Sets the
+result's `:ylabel` accordingly and updates the `:yquantity`/`:yunit` tokens when
+present.
 """
 function absorbance_to_transmittance(s::Spectrum; percent::Bool=false)
+    q = get(s.metadata, :yquantity, nothing)
+    isnothing(q) || Symbol(q) === :absorbance ||
+        throw(ArgumentError("not an absorbance spectrum (yquantity = $(repr(q)))"))
     md = copy(s.metadata)
     md[:ylabel] = percent ? "Transmittance (%)" : "Transmittance"
     haskey(md, :yquantity) && (md[:yquantity] = :transmittance)

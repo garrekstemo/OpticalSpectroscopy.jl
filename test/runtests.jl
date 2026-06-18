@@ -400,6 +400,9 @@ Random.seed!(42)
         @test t.y ≈ [95.0, 50.0, 10.0]
         @test t.metadata[:yquantity] == :transmittance
         @test t.metadata[:yunit] == :percent
+
+        # a→t on a non-absorbance spectrum is rejected, symmetric with t→a
+        @test_throws ArgumentError absorbance_to_transmittance(s_pct)
     end
 
     @testset "Spectrum arithmetic returns Spectrum" begin
