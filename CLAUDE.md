@@ -8,6 +8,8 @@ In scope: peak fitting/detection, baseline correction, exponential decay (single
 
 Dependency budget: target **< 15 direct deps**.
 
+File-reader packages (JASCOFiles, HamamatsuStreakFiles) own no transforms or axis labels — they emit raw data plus the instrument's native unit strings. All unit conversions (including transmittance↔absorbance) and axis labels live here, in the analysis layer.
+
 ## Types
 
 `AbstractSpectroscopyData` root, with concrete `Spectrum` (generic 1D; also carries TA slices and gated spectra via metadata tokens), `KineticTrace`, `TimeResolvedMatrix`, `PLMap`. `SweepData` is a separate (non-`AbstractSpectroscopyData`) struct in `types.jl`.
