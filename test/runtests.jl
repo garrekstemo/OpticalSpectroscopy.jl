@@ -411,18 +411,26 @@ Random.seed!(42)
         a = transmittance_to_absorbance(s_t)
         @test a isa Spectrum
         @test a.y ≈ transmittance_to_absorbance([0.5, 0.1])
-        @test a.metadata[:ylabel] == "Absorbance"
+        # Label is derived from tokens, never stored as prose (token contract)
+        @test !haskey(a.metadata, :ylabel)
+        @test a.metadata[:yquantity] == :absorbance
+        @test a.metadata[:yunit] == :OD
+        @test ylabel(a) == "Absorbance (OD)"
         @test a.metadata[:sample] == "test"   # other keys preserved
         @test !haskey(s_t.metadata, :ylabel)  # input untouched
 
         t = absorbance_to_transmittance(a)
         @test t isa Spectrum
         @test t.y ≈ [0.5, 0.1]
-        @test t.metadata[:ylabel] == "Transmittance"
+        @test !haskey(t.metadata, :ylabel)
+        @test t.metadata[:yquantity] == :transmittance
+        @test t.metadata[:yunit] == :fraction
+        @test ylabel(t) == "Transmittance"
 
         t_pct = absorbance_to_transmittance(a; percent=true)
         @test t_pct.y ≈ [50.0, 10.0]
-        @test t_pct.metadata[:ylabel] == "Transmittance (%)"
+        @test t_pct.metadata[:yunit] == :percent
+        @test ylabel(t_pct) == "Transmittance (%)"
     end
 
     @testset "Spectrum T→A token-driven semantics" begin
@@ -539,7 +547,10 @@ Random.seed!(42)
         km = kubelka_munk(r)
         @test km isa Spectrum
         @test km.y ≈ kubelka_munk.([0.3, 0.6])
-        @test km.metadata[:ylabel] == "F(R)"
+        # Label derived from the :kubelka_munk token, not stored as prose
+        @test !haskey(km.metadata, :ylabel)
+        @test km.metadata[:yquantity] == :kubelka_munk
+        @test ylabel(km) == "F(R)"
         @test_throws ArgumentError kubelka_munk(Spectrum([500.0, 600.0], [0.3, 0.0]))
     end
 
@@ -991,6 +1002,7 @@ Random.seed!(42)
             [5.0], 0.25, 0.1,
             reshape([0.5, -0.3], 2, 1), [0.01, -0.005],
             ["ESA", "GSB"], nothing,
+            nothing, nothing,
             0.9945, [0.9950, 0.9940],
             [zeros(10), zeros(10)]
         )
@@ -1437,6 +1449,7 @@ Random.seed!(42)
             [8.5], 0.25, 0.1,
             reshape([0.5, -0.3], 2, 1), [0.01, -0.005],
             ["ESA", "GSB"], nothing,
+            nothing, nothing,
             0.9945,
             [0.9950, 0.9940],
             [zeros(10), zeros(10)]
@@ -1638,6 +1651,37 @@ Random.seed!(42)
             @test size(corrected.data) == size(matrix.data)
             @test corrected.metadata[:chirp_corrected] == true
 
+            inner = n_wl ÷ 4 : 3 * n_wl ÷ 4
+            peak_times = [time[argmax(corrected.data[:, j])] for j in inner]
+            @test std(peak_times) < 1.0
+        end
+
+        @testset "correct_chirp non-uniform time axis" begin
+            # Two-segment (fine-then-coarse) delay axis, common in TA. The cubic
+            # B-spline path assumes uniform knots; the gridded-linear fallback
+            # must keep the correction correct on a non-uniform axis (regression).
+            n_wl = 40
+            time = vcat(collect(range(-2.0, 5.0, length=70)),
+                        collect(range(5.5, 30.0, length=30)))
+            n_time = length(time)
+            @test !OpticalSpectroscopy._is_uniform(time)
+            wavelength = collect(range(500.0, 700.0, length=n_wl))
+            ref_λ = 600.0
+            data = zeros(n_time, n_wl)
+            for j in eachindex(wavelength)
+                t_onset = 0.02 * (wavelength[j] - ref_λ)
+                for i in eachindex(time)
+                    data[i, j] = time[i] > t_onset ? exp(-(time[i] - t_onset) / 2.0) : 0.0
+                end
+            end
+            matrix = TimeResolvedMatrix(time, wavelength, data,
+                                        Dict{Symbol,Any}(:source => "synthetic"))
+            cal = ChirpCalibration(collect(wavelength),
+                                   [0.02 * (λ - ref_λ) for λ in wavelength],
+                                   [-0.02 * ref_λ, 0.02], 1, ref_λ, 1.0,
+                                   Dict{Symbol,Any}())
+            corrected = correct_chirp(matrix, cal)
+            @test size(corrected.data) == size(matrix.data)
             inner = n_wl ÷ 4 : 3 * n_wl ÷ 4
             peak_times = [time[argmax(corrected.data[:, j])] for j in inner]
             @test std(peak_times) < 1.0
@@ -2078,8 +2122,8 @@ Random.seed!(42)
         x = collect(range(-2.0, 2.0, length=nx))
         y = collect(range(-2.0, 2.0, length=ny))
         int_matrix = dropdims(sum(spectra; dims=3); dims=3)
-        meta = Dict{String,Any}("source_file" => "synthetic.lvm",
-                                 "nx" => nx, "ny" => ny, "pixel_range" => nothing)
+        meta = Dict{Symbol,Any}(:source_file => "synthetic.lvm",
+                                 :nx => nx, :ny => ny, :pixel_range => nothing)
         m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
         # Type and interface
@@ -2090,9 +2134,10 @@ Random.seed!(42)
         @test zdata(m) === m.intensity
         @test intensity(m) === m.intensity
         @test npoints(m) == (5, 5)
-        @test xlabel(m) == "X (μm)"
-        @test ylabel(m) == "Y (μm)"
-        @test zlabel(m) == "PL Intensity"
+        # Labels derived from tokens: unit from :position_unit (default µm)
+        @test xlabel(m) == "X (µm)"
+        @test ylabel(m) == "Y (µm)"
+        @test zlabel(m) == "Intensity (counts)"
         @test source_file(m) == "synthetic.lvm"
 
         # extract_spectrum by index
@@ -2239,9 +2284,9 @@ Random.seed!(42)
         # Intensity integrated over a restricted pixel range
         p1, p2 = 10, 20
         int_matrix = dropdims(sum(spectra[:, :, p1:p2]; dims=3); dims=3)
-        meta = Dict{String,Any}("source_file" => "synthetic.lvm",
-                                 "nx" => nx, "ny" => ny,
-                                 "pixel_range" => (p1, p2))
+        meta = Dict{Symbol,Any}(:source_file => "synthetic.lvm",
+                                 :nx => nx, :ny => ny,
+                                 :pixel_range => (p1, p2))
         m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
         # subtract_background should recompute intensity using the same pixel_range
@@ -2347,7 +2392,7 @@ Random.seed!(42)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
             int_matrix = dropdims(sum(spectra; dims=3); dims=3)
-            meta = Dict{String,Any}("source_file" => "test", "pixel_range" => nothing)
+            meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
@@ -2374,7 +2419,7 @@ Random.seed!(42)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
             int_matrix = dropdims(sum(spectra; dims=3); dims=3)
-            meta = Dict{String,Any}("source_file" => "test", "pixel_range" => nothing)
+            meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
@@ -2401,7 +2446,7 @@ Random.seed!(42)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
             int_matrix = dropdims(sum(spectra; dims=3); dims=3)
-            meta = Dict{String,Any}("source_file" => "test", "pixel_range" => nothing)
+            meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
@@ -2427,7 +2472,7 @@ Random.seed!(42)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
             int_matrix = dropdims(sum(spectra; dims=3); dims=3)
-            meta = Dict{String,Any}("source_file" => "test", "pixel_range" => nothing)
+            meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
@@ -2450,7 +2495,7 @@ Random.seed!(42)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
             int_matrix = dropdims(sum(spectra; dims=3); dims=3)
-            meta = Dict{String,Any}("source_file" => "test", "pixel_range" => nothing)
+            meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
@@ -2704,6 +2749,15 @@ Random.seed!(42)
             @test result.bandgap > 0
         end
 
+        @testset "tauc_plot even Savitzky-Golay window" begin
+            # 11 energy points -> 10 slopes -> auto win=10 (even); the SG filter
+            # requires an odd window, so this must not throw (regression).
+            energy = collect(2.0:0.1:3.0)            # 11 points
+            alpha = @. sqrt(max(0.0, energy - 2.4))
+            result = tauc_plot(energy, alpha; gap_type=:direct)
+            @test haskey(result, :bandgap)
+        end
+
         @testset "kramers_kronig" begin
             # Lorentzian absorption -> dispersive real part
             omega = collect(0.1:0.1:10.0)
@@ -2748,6 +2802,17 @@ Random.seed!(42)
             @test haskey(result, :Eu)
             @test result.Eu > 0
             @test isapprox(result.Eu, Eu, rtol=0.1)
+        end
+
+        @testset "urbach_tail auto-detect tolerates non-positive absorbance" begin
+            # Absorbance with baseline noise dipping to zero/negative: the auto
+            # fit-range path must not take log of a non-positive value (regression).
+            energy = collect(1.0:0.01:3.0)
+            Eu = 0.05
+            alpha = @. exp((energy - 2.0) / Eu)
+            alpha[1:5] .= [0.0, -1e-3, -2e-4, 0.0, 1e-5]   # sub-gap noise
+            result = urbach_tail(energy, alpha)            # fit_range = nothing
+            @test result.Eu > 0
         end
 
         @testset "thickness_from_fringes" begin
@@ -2981,7 +3046,7 @@ Random.seed!(42)
         @test ii[5, 1] ≈ 5.0 * 10
 
         # metadata fallback
-        meta = Dict{String,Any}("pixel_range" => (1, 15))
+        meta = Dict{Symbol,Any}(:pixel_range => (1, 15))
         m_meta = PLMap(intens, spectra, xs, ys, pixel, meta)
         @test integrated_intensity(m_meta)[2, 2] ≈ 2.0 * 15
 

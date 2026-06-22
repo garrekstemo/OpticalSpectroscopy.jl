@@ -19,7 +19,10 @@ stored in `spectra` for extraction at individual positions.
 - `x::Vector{Float64}` — Spatial x positions (μm)
 - `y::Vector{Float64}` — Spatial y positions (μm)
 - `pixel::Vector{Float64}` — Pixel indices (or wavelength if calibrated)
-- `metadata::Dict{String,Any}` — Source file, grid dims, step size, etc.
+- `metadata::Dict{Symbol,Any}` — Symbol-keyed metadata token dict (shared with
+  the rest of the `AbstractSpectroscopyData` family): provenance (`:source_file`,
+  `:nx`, `:ny`, `:step_size`, `:pixel_range`) plus axis tokens (`:position_unit`
+  for the spatial axes, `:yquantity`/`:yunit` for the intensity).
 """
 struct PLMap <: AbstractSpectroscopyData
     intensity::Matrix{Float64}
@@ -27,26 +30,35 @@ struct PLMap <: AbstractSpectroscopyData
     x::Vector{Float64}
     y::Vector{Float64}
     pixel::Vector{Float64}
-    metadata::Dict{String,Any}
+    metadata::Dict{Symbol,Any}
 end
 
 PLMap(intensity, spectra, x, y, pixel) =
-    PLMap(intensity, spectra, x, y, pixel, Dict{String,Any}())
+    PLMap(intensity, spectra, x, y, pixel, Dict{Symbol,Any}())
 
 # =============================================================================
 # AbstractSpectroscopyData interface
 # =============================================================================
 
+# Spatial-axis label: "X"/"Y" identity with the unit derived from the
+# :position_unit token (default :um), never hardcoded.
+function _pl_position_label(axis::AbstractString, m::PLMap)
+    u = Symbol(get(m.metadata, :position_unit, :um))
+    ud = get(_UNIT_DISPLAY, u, String(u))
+    return isempty(ud) ? String(axis) : "$axis ($ud)"
+end
+
 xdata(m::PLMap) = m.x
 ydata(m::PLMap) = m.y
 zdata(m::PLMap) = m.intensity
-xlabel(::PLMap) = "X (μm)"
-ylabel(::PLMap) = "Y (μm)"
-zlabel(::PLMap) = "PL Intensity"
+xlabel(m::PLMap) = _pl_position_label("X", m)
+ylabel(m::PLMap) = _pl_position_label("Y", m)
+zlabel(m::PLMap) = axis_label(Symbol(get(m.metadata, :yquantity, :intensity)),
+                              Symbol(get(m.metadata, :yunit, :counts)))
 _metadata(m::PLMap) = m.metadata
 is_matrix(::PLMap) = true
 npoints(m::PLMap) = (length(m.x), length(m.y))
-source_file(m::PLMap) = get(m.metadata, "source_file", "unknown")
+source_file(m::PLMap) = get(m.metadata, :source_file, "unknown")
 title(m::PLMap) = source_file(m)
 
 # Semantic accessor
@@ -172,7 +184,7 @@ function subtract_background(m::PLMap; positions=nothing, margin::Int=5)
     corrected = m.spectra .- reshape(bg_spectra, 1, 1, :)
 
     # Recompute intensity with the same pixel_range as the original
-    pixel_range = get(m.metadata, "pixel_range", nothing)
+    pixel_range = get(m.metadata, :pixel_range, nothing)
     if !isnothing(pixel_range)
         p1, p2 = pixel_range
         intensity = dropdims(sum(corrected[:, :, p1:p2]; dims=3); dims=3)
@@ -181,7 +193,7 @@ function subtract_background(m::PLMap; positions=nothing, margin::Int=5)
     end
 
     new_metadata = copy(m.metadata)
-    new_metadata["background_positions"] = bg_positions
+    new_metadata[:background_positions] = bg_positions
     return PLMap(intensity, corrected, m.x, m.y, m.pixel, new_metadata)
 end
 
@@ -201,7 +213,12 @@ function normalize_intensity(m::PLMap)
     else
         norm_intensity = (m.intensity .- imin) ./ (imax - imin)
     end
-    return PLMap(norm_intensity, m.spectra, m.x, m.y, m.pixel, m.metadata)
+    # Normalized intensity is no longer in counts: retag the signal unit so the
+    # derived z-label stays honest (`Intensity (arb. units)`).
+    md = copy(m.metadata)
+    md[:yquantity] = :intensity
+    md[:yunit] = :arb
+    return PLMap(norm_intensity, m.spectra, m.x, m.y, m.pixel, md)
 end
 
 # =============================================================================
@@ -221,7 +238,7 @@ With `pixel_range`, sums `m.spectra[:, :, p1:p2]` over the given pixel window.
   Falls back to the `pixel_range` stored in metadata, or uses `m.intensity` if unset.
 """
 function integrated_intensity(m::PLMap; pixel_range::Union{Tuple{Int,Int},Nothing}=nothing)
-    pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, "pixel_range", nothing)
+    pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, :pixel_range, nothing)
     if !isnothing(pr)
         p1 = max(1, pr[1])
         p2 = min(length(m.pixel), pr[2])
@@ -362,7 +379,7 @@ heatmap(m.x, m.y, centers; colormap=:viridis, nan_color=:transparent)
 """
 function peak_centers(m::PLMap; pixel_range::Union{Tuple{Int,Int},Nothing}=nothing,
                       threshold::Real=0.05)
-    pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, "pixel_range", nothing)
+    pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, :pixel_range, nothing)
 
     if !isnothing(pr)
         p1 = max(1, pr[1])

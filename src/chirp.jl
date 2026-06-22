@@ -153,6 +153,8 @@ function detect_chirp(matrix::TimeResolvedMatrix;
         0 < onset_frac < 1 || throw(ArgumentError("onset_frac must be in (0, 1), got $onset_frac"))
     end
 
+    _is_uniform(time) || @warn "detect_chirp assumes an evenly-spaced time axis; the detected axis is non-uniform, so the index-to-time (lag·dt) conversion may be inaccurate."
+
     # Ensure smooth_window is odd (required for SG filter)
     if !isodd(smooth_window)
         smooth_window += 1
@@ -453,10 +455,26 @@ end
 # =============================================================================
 
 """
+Whether `t` is (approximately) evenly spaced. Cubic B-spline interpolation and
+the lag→time conversion in chirp detection both assume a uniform time axis;
+multi-segment / quasi-log delay axes are common in TA, so this gates the
+fallbacks that keep those cases correct.
+"""
+function _is_uniform(t::AbstractVector; rtol::Real=1e-3)
+    length(t) < 3 && return true
+    dt = t[2] - t[1]
+    dt == 0 && return false
+    return maximum(abs.(diff(t) .- dt)) <= rtol * abs(dt)
+end
+
+"""
     correct_chirp(matrix::TimeResolvedMatrix, cal::ChirpCalibration) -> TimeResolvedMatrix
 
-Apply chirp correction via cubic spline interpolation, shifting each wavelength
-column by `t_shift(λ)` from the calibration polynomial.
+Apply chirp correction by interpolating each wavelength column onto its
+`t_shift(λ)`-shifted time axis from the calibration polynomial. Uses cubic
+B-splines on a uniform time axis; for a non-uniform axis it falls back to
+gridded-linear interpolation against the actual sample times (cubic B-splines
+require evenly-spaced knots) so the correction stays quantitatively correct.
 """
 function correct_chirp(matrix::TimeResolvedMatrix, cal::ChirpCalibration)
     time = matrix.time
@@ -467,16 +485,20 @@ function correct_chirp(matrix::TimeResolvedMatrix, cal::ChirpCalibration)
     poly = polynomial(cal)
     corrected = similar(data)
 
+    uniform = _is_uniform(time)
     t_grid = range(time[1], time[end], length=n_time)
 
     for j in eachindex(wavelength)
         t_shift = poly(wavelength[j])
 
-        # Cubic spline interpolation of this column
+        # Interpolate this column, then read it at the shifted sample times.
         col = @view data[:, j]
-        itp = interpolate(col, BSpline(Cubic(Line(OnGrid()))))
-        sitp = scale(itp, t_grid)
-        eitp = extrapolate(sitp, Flat())
+        if uniform
+            itp = interpolate(col, BSpline(Cubic(Line(OnGrid()))))
+            eitp = extrapolate(scale(itp, t_grid), Flat())
+        else
+            eitp = extrapolate(interpolate((time,), col, Gridded(Linear())), Flat())
+        end
 
         # Evaluate at shifted time points (t + t_shift) inline, no allocation
         for i in eachindex(time)
