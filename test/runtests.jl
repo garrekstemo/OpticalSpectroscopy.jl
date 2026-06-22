@@ -105,6 +105,60 @@ Random.seed!(42)
         @test zlabel(matrix_tok) == "ΔA (mOD)"
     end
 
+    @testset "TimeResolvedMatrix keyword/token constructor" begin
+        time = [0.0, 1.0, 2.0]
+        wl = [800.0, 850.0, 900.0]
+        data = rand(3, 3)
+
+        # token sugar: quantity keywords set tokens, unit defaults from CANONICAL_UNIT
+        m = TimeResolvedMatrix(time, wl, data;
+            spectral=:wavelength, signal=:intensity, time_unit=:ns)
+        @test xlabel(m) == "Wavelength (nm)"
+        @test zlabel(m) == "Intensity (counts)"
+        @test ylabel(m) == "Time (ns)"
+
+        # explicit *_unit overrides the canonical default
+        m2 = TimeResolvedMatrix(time, wl, data;
+            spectral=:wavenumber, spectral_unit=:per_cm,
+            signal=:delta_absorbance, signal_unit=:mOD, time_unit=:ps)
+        @test xlabel(m2) == "Wavenumber (cm⁻¹)"
+        @test zlabel(m2) == "ΔA (mOD)"
+        @test ylabel(m2) == "Time (ps)"
+
+        # orientation=:wavelength_time transposes native (n_wl, n_time) data in
+        nwl, nt = 4, 3
+        t = [0.0, 1.0, 2.0]
+        w = [900.0, 850.0, 800.0, 750.0]
+        raw = reshape(collect(1.0:12.0), nwl, nt)      # (n_wavelength, n_time)
+        mo = TimeResolvedMatrix(t, w, raw; orientation=:wavelength_time)
+        @test size(zdata(mo)) == (nt, nwl)
+        @test zdata(mo) == permutedims(raw)
+
+        # sort_spectral sorts a descending axis ascending and reorders columns to match
+        ms = TimeResolvedMatrix(t, w, raw; orientation=:wavelength_time, sort_spectral=true)
+        @test issorted(xdata(ms))
+        @test xdata(ms) == [750.0, 800.0, 850.0, 900.0]
+        @test zdata(ms) == permutedims(raw)[:, sortperm(w)]
+
+        # backward compatibility: bare call unchanged, no data copy, honest floor labels
+        plain = TimeResolvedMatrix(time, wl, data)
+        @test zdata(plain) === data
+        @test xlabel(plain) == "x"
+        @test zlabel(plain) == "Signal"
+        @test source_file(TimeResolvedMatrix(time, wl, data;
+            metadata=Dict{Symbol,Any}(:source => "f"))) == "f"
+
+        # source keyword and extra kwargs land in metadata
+        m3 = TimeResolvedMatrix(time, wl, data;
+            spectral=:wavelength, source="15K.img", sample="ZIF-62", temperature=15)
+        @test source_file(m3) == "15K.img"
+        @test m3.metadata[:sample] == "ZIF-62"
+        @test m3.metadata[:temperature] == 15
+
+        # invalid orientation is rejected
+        @test_throws ArgumentError TimeResolvedMatrix(time, wl, data; orientation=:bogus)
+    end
+
     @testset "Extended interface - source_file, npoints, title" begin
         # KineticTrace
         trace = KineticTrace([0.0, 1.0, 2.0], [0.1, 0.5, 0.3];
