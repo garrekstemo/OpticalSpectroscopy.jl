@@ -17,7 +17,8 @@ const AXIS_QUANTITIES = Set{Symbol}([
 
 const SIGNAL_QUANTITIES = Set{Symbol}([
     :absorbance, :transmittance, :reflectance, :single_beam,
-    :interferogram, :delta_absorbance, :intensity])
+    :interferogram, :delta_absorbance, :delta_transmittance,
+    :intensity, :kubelka_munk])
 
 const UNITS = Set{Symbol}([
     :nm, :um, :angstrom, :per_cm, :fs, :ps, :ns, :degree, :eV, :meV,
@@ -38,7 +39,9 @@ const _QUANTITY_DISPLAY = Dict{Symbol,String}(
     :single_beam      => "Single-beam intensity",
     :interferogram    => "Interferogram",
     :delta_absorbance => "ΔA",
+    :delta_transmittance => "−ΔT/T",
     :intensity        => "Intensity",
+    :kubelka_munk     => "F(R)",
 )
 
 const _UNIT_DISPLAY = Dict{Symbol,String}(

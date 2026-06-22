@@ -6,14 +6,19 @@ A practical guide to statistics used in spectroscopic peak fitting. The examples
 result = fit_peaks(x, y, (region_min, region_max))
 ```
 
+Goodness-of-fit statistics are plain fields on the result (`result.r_squared`, `result.rss`, `result.mse`); per-parameter estimates come from the per-peak `PeakFitResult` reached by indexing — `result[i]` is peak `i`, and `result[i][:center]` returns a `(value, err, ci)` named tuple. The only CurveFit accessor extended for this type is [`residuals`](@ref). (To use the solver-level accessors `coef`/`stderror`/`confint`, fit a `NonlinearCurveFitProblem` directly and call them on the returned `CurveFitSolution`.)
+
 ## Parameter Estimates
 
 ### Coefficients
 
-The fitted parameter values (amplitude, peak position, FWHM, offset) obtained by minimizing the residual sum of squares.
+The fitted parameter values (amplitude, peak position, FWHM, offset) obtained by minimizing the residual sum of squares. Access them per peak, by name:
 
 ```julia
-p = coef(result)  # [amplitude, center, fwhm, offset]
+peak = result[1]               # PeakFitResult for the first peak
+peak[:center].value            # fitted peak position
+peak.params                    # available parameter names, e.g. [:amplitude, :center, :fwhm, :offset]
+[peak[:center].value for peak in result]   # centers of every peak
 ```
 
 ## Uncertainty Quantification
@@ -29,7 +34,7 @@ The standard error estimates uncertainty in each fitted parameter. Computed from
 where ``C`` is the covariance matrix.
 
 ```julia
-se = stderror(result)  # [se_amplitude, se_center, se_fwhm, se_offset]
+se = result[1][:center].err   # standard error of the first peak's center
 ```
 
 **When to use:** Report as parameter ± SE for quick uncertainty estimates. Assumes errors are symmetric and normally distributed.
@@ -45,9 +50,10 @@ A range likely to contain the true parameter value. The 95% CI means: if we repe
 where ``t_{\alpha/2, \nu}`` is the t-distribution critical value and ``\nu`` is degrees of freedom.
 
 ```julia
-ci = confint(result)        # 95% CI (default)
-ci = confint(result, 0.99)  # 99% CI
+ci = result[1][:center].ci  # 95% CI tuple (low, high) for the first peak's center
 ```
+
+The intervals are computed at the 95% level. For a different level, fit a `NonlinearCurveFitProblem` directly and call `confint(sol; level=0.99)` on the solver result.
 
 **When to use:** Preferred for publications. More informative than SE alone, especially for small sample sizes where t-distribution differs significantly from normal.
 
@@ -61,7 +67,7 @@ C = \sigma^2 (J^T J)^{-1}
 
 where ``J`` is the Jacobian matrix and ``\sigma^2`` is estimated from MSE.
 
-`stderror` (the diagonal) and `confint` (intervals) are exposed directly; the full covariance matrix is not currently exported as a convenience. For error propagation across derived quantities, use `stderror` under the independent-parameter approximation, or access the underlying solver result.
+Per-parameter standard errors (`result[i][name].err`) and confidence intervals (`result[i][name].ci`) are exposed directly; the full covariance matrix is not currently surfaced as a convenience. For error propagation across derived quantities, use the per-parameter `.err` under the independent-parameter approximation, or access the underlying solver result.
 
 **When to use:** Unusually large `stderror` values flag potential parameter correlations — a good diagnostic for overparameterized models (e.g. two overlapping peaks when one suffices).
 
@@ -76,7 +82,7 @@ The sum of squared differences between observed and fitted values:
 ```
 
 ```julia
-ss_res = rss(result)
+ss_res = result.rss
 ```
 
 **When to use:** Comparing fits of the same model to the same data. Lower is better. Not useful for comparing across different datasets or region sizes.
@@ -92,7 +98,7 @@ RSS normalized by degrees of freedom:
 where ``n`` is number of points and ``p`` is number of parameters.
 
 ```julia
-mse_val = mse(result)
+mse_val = result.mse
 ```
 
 **When to use:** Comparing fits across different region sizes. Estimates the variance of the residuals. Also used internally to compute parameter uncertainties.
@@ -106,8 +112,10 @@ R^2 = 1 - \frac{\text{RSS}}{\text{TSS}} = 1 - \frac{\sum(y_i - \hat{y}_i)^2}{\su
 ```
 
 ```julia
+r_squared = result.r_squared          # computed by the fit
+# equivalently, from the residual and total sums of squares:
 ss_tot = sum((y .- mean(y)).^2)
-r_squared = 1 - rss(result) / ss_tot
+r_squared == 1 - result.rss / ss_tot
 ```
 
 **When to use:** Quick assessment of fit quality. R² > 0.99 is typical for good spectroscopic fits. However, R² can be misleading:

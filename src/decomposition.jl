@@ -162,8 +162,8 @@ Uses Lee & Seung multiplicative update rules with Frobenius norm objective.
 A [`DecompositionResult`](@ref) with:
 - `loadings`: Non-negative spatial weight maps `(nx, ny, n_components)`.
 - `components`: Non-negative spectral profiles `(n_components, n_spectral)`.
-- `explained_variance`: Fraction of total Frobenius norm captured as each
-  component is added (cumulative reconstruction quality).
+- `explained_variance`: Per-component fraction of the total Frobenius norm
+  (`‖wₖ hₖ‖² / ‖V‖²` for each component `k`, not a cumulative sum).
 
 # Example
 ```julia

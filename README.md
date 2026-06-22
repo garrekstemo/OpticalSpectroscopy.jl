@@ -57,7 +57,7 @@ decay_time_to_linewidth(1.0u"ps")
 | **TA spectrum fitting** | N-peak model with ESA/GSB/SE labels and sign convention |
 | **Chirp correction** | GVD detection (cross-correlation, threshold) and correction for broadband TA |
 | **SVD filtering** | Matrix denoising for broadband TA data |
-| **Peak fitting** | Gaussian, Lorentzian, Voigt, Pseudo-Voigt, Fano via [CurveFit.jl](https://github.com/garrekstemo/CurveFit.jl) |
+| **Peak fitting** | Gaussian, Lorentzian, Voigt, Pseudo-Voigt, Fano via [CurveFit.jl](https://github.com/SciML/CurveFit.jl) |
 | **Peak detection** | Automatic peak finding with prominence filtering |
 | **Baseline correction** | arPLS, SNIP, rubber band, iModPoly, rolling ball |
 | **Spectral math** | Smoothing, derivatives, band area, normalization, spectral arithmetic |
@@ -99,9 +99,9 @@ OpticalSpectroscopy.jl instead provides **typed data structures** (`Spectrum`, `
 
 - [Spectra.jl](https://github.com/charlesll/Spectra.jl) — Raman preprocessing and fitting with Raman-specific temperature/laser corrections (Long, Galeener, Hehlen) and diamond anvil cell utilities. OpticalSpectroscopy.jl does not implement these; users needing them can use both packages together.
 - [Peaks.jl](https://github.com/halleysfifthinc/Peaks.jl) — Lower-level peak detection primitives (used internally).
-- [CurveFit.jl](https://github.com/garrekstemo/CurveFit.jl) — Nonlinear fitting backend (used internally).
+- [CurveFit.jl](https://github.com/SciML/CurveFit.jl) — Nonlinear fitting backend (used internally).
 - [CurveFitModels.jl](https://github.com/garrekstemo/CurveFitModels.jl) — Lineshape model functions (used internally).
 
 ## Dependencies
 
-OpticalSpectroscopy uses [CurveFit.jl](https://github.com/garrekstemo/CurveFit.jl) as the nonlinear fitting backend and [CurveFitModels.jl](https://github.com/garrekstemo/CurveFitModels.jl) for model functions. Unit conversions use [Unitful.jl](https://github.com/PainterQubits/Unitful.jl).
+OpticalSpectroscopy uses [CurveFit.jl](https://github.com/SciML/CurveFit.jl) as the nonlinear fitting backend and [CurveFitModels.jl](https://github.com/garrekstemo/CurveFitModels.jl) for model functions. Unit conversions use [Unitful.jl](https://github.com/PainterQubits/Unitful.jl).

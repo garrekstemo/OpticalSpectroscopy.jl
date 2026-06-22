@@ -30,7 +30,7 @@ function OpticalSpectroscopy.plot_fit(
     lines!(ax_main, x, yhat; label = "fit", color = :crimson, linewidth = 2)
 
     if components
-        for i in 1:length(fit)
+        for i in eachindex(fit)
             lines!(ax_main, x, predict_peak(fit, i);
                    color = (:crimson, 0.5), linestyle = :dash,
                    linewidth = 1, label = "peak $i")

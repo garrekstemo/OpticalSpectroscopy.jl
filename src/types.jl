@@ -678,6 +678,7 @@ Base.iterate(r::MultiPeakFitResult) = iterate(r.peaks)
 Base.iterate(r::MultiPeakFitResult, state) = iterate(r.peaks, state)
 Base.firstindex(r::MultiPeakFitResult) = 1
 Base.lastindex(r::MultiPeakFitResult) = length(r.peaks)
+Base.eachindex(r::MultiPeakFitResult) = Base.OneTo(length(r.peaks))
 
 xdata(r::MultiPeakFitResult) = r._x
 ydata(r::MultiPeakFitResult) = r._y
@@ -955,11 +956,12 @@ xlabel(m::TimeResolvedMatrix) = _spectral_xlabel(m.metadata)
 ylabel(m::TimeResolvedMatrix) = _time_label(m.metadata, :time_unit)
 zlabel(m::TimeResolvedMatrix) = _signal_label(m.metadata)
 
-# Spectral axis unit heuristic — opt-in only; the sole caller is guess_units! (no automatic call sites).
+# Spectral axis unit heuristic — opt-in only; the sole caller is guess_units!
+# (no automatic call sites). Returns a unit token (:per_cm or :nm), not a label.
 function _detect_spectral_unit(wavelengths::AbstractVector{<:Real})
-    isempty(wavelengths) && return "nm"
+    isempty(wavelengths) && return :nm
     minval, maxval = extrema(wavelengths)
-    (minval > 1200 && maxval < 5000) ? "cm⁻¹" : "nm"
+    (minval > 1200 && maxval < 5000) ? :per_cm : :nm
 end
 
 function Base.show(io::IO, m::TimeResolvedMatrix)
@@ -1196,6 +1198,11 @@ struct GlobalFitResult
     offsets::Vector{Float64}
     labels::Vector{String}
     wavelengths::Union{Nothing, Vector{Float64}}
+    # Spectral-axis tokens carried from the source matrix so DAS plots derive
+    # their x-label instead of guessing it from data magnitude. `nothing` when
+    # fit from bare traces.
+    spectral_quantity::Union{Nothing, Symbol}
+    spectral_unit::Union{Nothing, Symbol}
     rsquared::Float64
     rsquared_individual::Vector{Float64}
     residuals::Vector{Vector{Float64}}
@@ -1481,16 +1488,29 @@ _metadata(t::KineticTrace) = t.metadata
 _metadata(m::TimeResolvedMatrix) = m.metadata
 
 """
-    xdata_unitful(d) ; ydata_unitful(d)
+    xdata_unitful(d)
 
-Return the x / signal data with their unit tokens (`:xunit` / `:yunit`) attached
-via Unitful (§6). With no token the unit is `Unitful.NoUnits` and the plain
-`Float64` vector is returned unchanged. Opt-in; core storage stays unitless.
+Return `xdata(d)` with its `:xunit` token attached via Unitful (§6). With no
+token the unit is `Unitful.NoUnits` and the plain `Float64` vector is returned
+unchanged. Opt-in; core storage stays unitless.
 """
 xdata_unitful(d::AbstractSpectroscopyData) =
     xdata(d) .* _unitful(Symbol(get(_metadata(d), :xunit, :dimensionless)))
+
+"""
+    ydata_unitful(d)
+
+Return `ydata(d)` with the unit token of *that axis* attached via Unitful (§6):
+the signal `:yunit` for 1D types (where `ydata` is the signal), and the
+time-axis unit `:time_unit` for [`TimeResolvedMatrix`](@ref) (where `ydata` is
+the time axis, not the signal). With no token the unit is `Unitful.NoUnits` and
+the plain `Float64` vector is returned unchanged. Opt-in; core storage stays
+unitless.
+"""
 ydata_unitful(d::AbstractSpectroscopyData) =
     ydata(d) .* _unitful(Symbol(get(_metadata(d), :yunit, :dimensionless)))
+ydata_unitful(m::TimeResolvedMatrix) =
+    ydata(m) .* _unitful(Symbol(get(_metadata(m), :time_unit, :ps)))
 
 """
     guess_units!(s::Spectrum) -> Spectrum
@@ -1500,12 +1520,9 @@ stamp `:xquantity`/`:xunit`. Nothing calls this automatically — labels never
 guess on the user's behalf (the no-guess rule).
 """
 function guess_units!(s::Spectrum)
-    if _detect_spectral_unit(s.x) == "cm⁻¹"
-        s.metadata[:xquantity] = :wavenumber
-        get!(s.metadata, :xunit, :per_cm)
-    else
-        s.metadata[:xquantity] = :wavelength
-        get!(s.metadata, :xunit, :nm)
-    end
+    # Set quantity and unit together so the two tokens never disagree.
+    unit = _detect_spectral_unit(s.x)
+    s.metadata[:xquantity] = unit === :per_cm ? :wavenumber : :wavelength
+    s.metadata[:xunit] = unit
     return s
 end
