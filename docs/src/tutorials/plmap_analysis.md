@@ -167,7 +167,7 @@ m_bg = subtract_background(m_pr; positions=[(-40.0, -40.0), (40.0, -40.0)])
 ```julia
 m_raw_norm = normalize_intensity(m_raw)
 m_pr_norm  = normalize_intensity(m_pr)
-m_bg_norm  = normalize_m_bg.intensity
+m_bg_norm  = normalize_intensity(m_bg)
 ```
 
 After min-max normalization to `[0, 1]`, approaches 2 and 3 look visually identical — normalization already removes the DC offset. Background subtraction matters when you need absolute PL intensities (comparing samples, correlating with excitation power), not for contrast alone.
@@ -339,7 +339,7 @@ Plot intensity and peak centre side by side:
 ```julia
 fig = Figure(size=(1000, 450))
 
-m_norm = normalize_m_clean.intensity
+m_norm = normalize_intensity(m_clean)
 
 ax1 = Axis(fig[1, 1], xlabel="X (μm)", ylabel="Y (μm)",
            title="PL Intensity", aspect=DataAspect())

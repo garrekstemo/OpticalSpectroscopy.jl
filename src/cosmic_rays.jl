@@ -354,7 +354,7 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
     mask = falses(nx, ny, np)
 
     # Determine channel range for detection
-    pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, "pixel_range", nothing)
+    pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, :pixel_range, nothing)
     p1 = !isnothing(pr) ? max(1, Int(pr[1])) : 1
     p2 = !isnothing(pr) ? min(np, Int(pr[2])) : np
 
@@ -479,7 +479,7 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
     cleaned = copy(m.spectra)
 
     # Use same channel range as detection
-    pr = get(m.metadata, "pixel_range", nothing)
+    pr = get(m.metadata, :pixel_range, nothing)
     p1 = !isnothing(pr) ? max(1, Int(pr[1])) : 1
     p2 = !isnothing(pr) ? min(np, Int(pr[2])) : np
     n_ch = p2 - p1 + 1
@@ -528,7 +528,7 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
     end
 
     # Recompute intensity
-    pixel_range = get(m.metadata, "pixel_range", nothing)
+    pixel_range = get(m.metadata, :pixel_range, nothing)
     if !isnothing(pixel_range)
         rp1, rp2 = pixel_range
         new_intensity = dropdims(sum(cleaned[:, :, Int(rp1):Int(rp2)]; dims=3); dims=3)

@@ -73,12 +73,15 @@ end
 """
     kubelka_munk(s::Spectrum) -> Spectrum
 
-Kubelka-Munk transform of a reflectance [`Spectrum`](@ref). Sets
-`metadata[:ylabel] = "F(R)"` on the result, overwriting any prior value.
+Kubelka-Munk transform of a reflectance [`Spectrum`](@ref). Tags the result with
+the `:kubelka_munk` signal-quantity token (derived label `"F(R)"`) and drops any
+stale reflectance signal tokens or literal `:ylabel`, keeping the label derived.
 """
 function kubelka_munk(s::Spectrum)
     md = copy(s.metadata)
-    md[:ylabel] = "F(R)"
+    delete!(md, :ylabel)
+    md[:yquantity] = :kubelka_munk
+    md[:yunit] = :dimensionless
     return Spectrum(s.x, kubelka_munk.(s.y), md)
 end
 
@@ -117,8 +120,10 @@ function tauc_plot(energy, absorption; gap_type=:direct, fit_range=nothing)
         dy = diff(tauc_y)
         dx = diff(hv)
         slopes = dy ./ dx
-        # Smooth the slopes to find the steepest region
+        # Smooth the slopes to find the steepest region. Savitzky-Golay needs an
+        # odd window, so round an even count down (cf. the guard in chirp.jl).
         win = min(11, length(slopes))
+        win = isodd(win) ? win : win - 1
         if win >= 3
             slopes_smooth = _sg_filter(slopes, win, 2).y
         else
@@ -243,7 +248,12 @@ function urbach_tail(energy, absorption; fit_range=nothing)
         # Auto-detect: use the lower 30% of the absorption range (sub-gap region)
         log_alpha = log.(alpha[mask])
         threshold = quantile(log_alpha, 0.3)
-        fit_mask = log.(alpha) .< threshold .&& mask
+        # Take the log only on masked (positive) entries; non-positive entries
+        # stay -Inf so they fail the threshold test without ever calling
+        # log on a zero/negative value (which throws DomainError).
+        log_full = fill(-Inf, length(alpha))
+        log_full[mask] .= log_alpha
+        fit_mask = (log_full .< threshold) .& mask
         any(fit_mask) || (fit_mask = mask)
     else
         fit_mask = (hv .>= fit_range[1]) .&& (hv .<= fit_range[2]) .&& mask

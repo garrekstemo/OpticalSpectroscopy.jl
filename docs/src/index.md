@@ -71,6 +71,7 @@ decay_time_to_linewidth(1.0u"ps")    # -> linewidth in meV (default output unit)
 | **Chirp correction** | GVD detection (cross-correlation, threshold) and correction for broadband TA |
 | **SVD filtering** | Matrix denoising for broadband TA data |
 | **Peak fitting** | Gaussian, Lorentzian, Voigt, Pseudo-Voigt, Fano via CurveFit.jl |
+| **Cavity / polaritons** | Hopfield coefficients, polariton branches, Rabi splitting, dispersion + cavity-spectrum fitting |
 | **Peak detection** | Automatic peak finding with prominence filtering |
 | **Baseline correction** | arPLS, SNIP, rubber band, iModPoly, rolling ball |
 | **Spectral math** | Smoothing, derivatives, band area, normalization, spectral arithmetic |
@@ -90,5 +91,5 @@ This documentation follows the [Diátaxis](https://diataxis.fr/) framework:
 ## Related Packages
 
 - [CurveFitModels.jl](https://garrekstemo.github.io/CurveFitModels.jl/stable/) — lineshape and temporal model functions used for fitting
-- [CurveFit.jl](https://github.com/garrekstemo/CurveFit.jl) — the nonlinear least-squares solver
+- [CurveFit.jl](https://github.com/SciML/CurveFit.jl) — the nonlinear least-squares solver
 - [QPSTools.jl](https://github.com/garrekstemo/QPSTools.jl) — lab-specific loaders, plotting themes, and eLabFTW integration built on top of OpticalSpectroscopy

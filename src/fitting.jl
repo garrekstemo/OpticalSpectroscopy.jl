@@ -523,6 +523,7 @@ function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float
         taus_sorted, sigma, t0,
         amplitudes, offsets,
         labels, nothing,
+        nothing, nothing,
         rsquared_global, rsquared_individual,
         residuals_vec
     )
@@ -591,11 +592,18 @@ function fit_global(matrix::TimeResolvedMatrix; n_exp::Int=1, irf_width::Float64
 
     result = fit_global(traces; n_exp=n_exp, irf_width=irf_width, labels=labels)
 
+    # Carry the matrix's spectral-axis tokens so DAS plots derive the x-label.
+    sq = get(matrix.metadata, :xquantity, nothing)
+    su = get(matrix.metadata, :xunit, nothing)
+    sq = isnothing(sq) ? nothing : Symbol(sq)
+    su = isnothing(su) ? nothing : Symbol(su)
+
     # Return a new GlobalFitResult with wavelengths populated
     return GlobalFitResult(
         result.taus, result.sigma, result.t0,
         result.amplitudes, result.offsets,
         result.labels, actual_wavelengths,
+        sq, su,
         result.rsquared, result.rsquared_individual,
         result.residuals
     )
