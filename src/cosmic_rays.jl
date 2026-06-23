@@ -368,7 +368,7 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
         ix, iy = idx[1], idx[2]
         neighbors = _neighbor_spectra(m.spectra, ix, iy, nx, ny, p1, p2)
         isempty(neighbors) && continue
-        signal = @view m.spectra[ix, iy, p1:p2]
+        signal = @view pixel_view(m, ix, iy)[p1:p2]
         # Use most similar neighbor for noise estimation (consistent with detection)
         best_idx, _ = _most_similar_neighbor(signal, neighbors)
         ref = neighbors[best_idx]
@@ -389,7 +389,7 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
         neighbors = _neighbor_spectra(m.spectra, ix, iy, nx, ny, p1, p2)
         isempty(neighbors) && continue
 
-        signal = @view m.spectra[ix, iy, p1:p2]
+        signal = @view pixel_view(m, ix, iy)[p1:p2]
 
         # Most Similar Neighbor (MSN) reference: compare to the neighbor with
         # the highest spectral correlation. At spatial boundaries, the MSN is
@@ -495,7 +495,7 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
             # Edge case: no neighbors — fall back to spectral interpolation
             flagged_channels = findall(@view result.mask[ix, iy, :])
             cr_1d = CosmicRayResult(flagged_channels, length(flagged_channels))
-            signal = @view m.spectra[ix, iy, :]
+            signal = pixel_view(m, ix, iy)
             interp = remove_cosmic_rays(signal, cr_1d)
             for ch in flagged_channels
                 cleaned[ix, iy, ch] = interp[ch]
@@ -503,7 +503,7 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
             continue
         end
 
-        signal = @view m.spectra[ix, iy, p1:p2]
+        signal = @view pixel_view(m, ix, iy)[p1:p2]
         best_idx, _ = _most_similar_neighbor(signal, neighbors)
         msn = neighbors[best_idx]
 

@@ -2126,6 +2126,13 @@ Random.seed!(42)
                                  :nx => nx, :ny => ny, :pixel_range => nothing)
         m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
+        # Accessor seam (issue #47): pixel_view / eachpixel / spectra_matrix
+        @test collect(pixel_view(m, 2, 3)) == spectra[2, 3, :]
+        @test size(spectra_matrix(m)) == (np, nx * ny)
+        @test spectra_matrix(m)[:, 2] == spectra[2, 1, :]   # column-major: pixel (2,1)
+        @test length(collect(eachpixel(m))) == nx * ny
+        @test extract_spectrum(m, 2, 3).signal == spectra[2, 3, :]
+
         # Type and interface
         @test m isa AbstractSpectroscopyData
         @test is_matrix(m) == true

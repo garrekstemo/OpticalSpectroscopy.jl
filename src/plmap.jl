@@ -69,6 +69,33 @@ Return the PL intensity matrix.
 """
 intensity(m::PLMap) = m.intensity
 
+# =============================================================================
+# Spectral-cube accessors (hide the storage layout from callers)
+# =============================================================================
+
+"""
+    pixel_view(m::PLMap, ix::Integer, iy::Integer) -> AbstractVector
+
+View (no copy) of the CCD spectrum at grid index `(ix, iy)`. With the
+channel-major cube layout this is a unit-stride, allocation-free column.
+"""
+@inline pixel_view(m::PLMap, ix::Integer, iy::Integer) = @view m.spectra[ix, iy, :]
+
+"""
+    eachpixel(m::PLMap)
+
+Iterator over per-pixel spectrum views, in column-major grid order (`ix` fastest).
+"""
+eachpixel(m::PLMap) = (pixel_view(m, ix, iy) for iy in 1:length(m.y), ix in 1:length(m.x))
+
+"""
+    spectra_matrix(m::PLMap) -> AbstractMatrix
+
+The cube as an `(n_pixel, nx*ny)` matrix — each column is one pixel's spectrum.
+"""
+spectra_matrix(m::PLMap) =
+    permutedims(reshape(m.spectra, length(m.x) * length(m.y), length(m.pixel)))
+
 function Base.show(io::IO, m::PLMap)
     nx, ny = length(m.x), length(m.y)
     np = length(m.pixel)
@@ -100,7 +127,7 @@ Returns `(pixel=..., signal=..., x=..., y=...)`.
 function extract_spectrum(m::PLMap, ix::Int, iy::Int)
     1 <= ix <= length(m.x) || error("ix=$ix out of range 1:$(length(m.x))")
     1 <= iy <= length(m.y) || error("iy=$iy out of range 1:$(length(m.y))")
-    return (pixel=m.pixel, signal=vec(m.spectra[ix, iy, :]),
+    return (pixel=m.pixel, signal=collect(pixel_view(m, ix, iy)),
             x=m.x[ix], y=m.y[iy])
 end
 
