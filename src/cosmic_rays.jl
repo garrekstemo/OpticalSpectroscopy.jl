@@ -228,18 +228,18 @@ restricted to channels `p1:p2`. Returns a vector of views (one per neighbor).
 """
 function _neighbor_spectra(spectra::AbstractArray{<:Any,3}, ix::Int, iy::Int,
                            nx::Int, ny::Int, p1::Int, p2::Int)
-    neighbors = typeof(@view spectra[1, 1, p1:p2])[]
+    neighbors = typeof(@view spectra[p1:p2, 1, 1])[]
     if ix > 1
-        push!(neighbors, @view spectra[ix-1, iy, p1:p2])
+        push!(neighbors, @view spectra[p1:p2, ix-1, iy])
     end
     if ix < nx
-        push!(neighbors, @view spectra[ix+1, iy, p1:p2])
+        push!(neighbors, @view spectra[p1:p2, ix+1, iy])
     end
     if iy > 1
-        push!(neighbors, @view spectra[ix, iy-1, p1:p2])
+        push!(neighbors, @view spectra[p1:p2, ix, iy-1])
     end
     if iy < ny
-        push!(neighbors, @view spectra[ix, iy+1, p1:p2])
+        push!(neighbors, @view spectra[p1:p2, ix, iy+1])
     end
     return neighbors
 end
@@ -288,14 +288,14 @@ function _unflag_wide_runs!(mask::BitArray{3}, ix::Int, iy::Int,
                             p1::Int, p2::Int, max_width::Int)
     k = p1
     while k <= p2
-        if mask[ix, iy, k]
+        if mask[k, ix, iy]
             run_start = k
-            while k <= p2 && mask[ix, iy, k]
+            while k <= p2 && mask[k, ix, iy]
                 k += 1
             end
             if k - run_start > max_width
                 for j in run_start:(k - 1)
-                    mask[ix, iy, j] = false
+                    mask[j, ix, iy] = false
                 end
             end
         else
@@ -329,7 +329,7 @@ A global noise floor (median of per-pixel σ estimates) prevents over-sensitivit
 in spatially homogeneous regions.
 
 # Arguments
-- `m`: PLMap with 3D spectra array `(nx, ny, n_pixel)`
+- `m`: PLMap with channel-major 3D spectra array `(n_pixel, nx, ny)`
 - `threshold`: outlier cutoff in MAD-scaled units (default 5.0)
 - `pixel_range`: `(start, stop)` channel indices to analyze. When set, only
   this subrange of each spectrum is checked for cosmic rays. Channels outside
@@ -350,8 +350,8 @@ println("Found \$(cr.count) cosmic rays in \$(cr.affected_spectra) spectra")
 function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
                             pixel_range::Union{Tuple{Int,Int},Nothing}=nothing,
                             max_spike_width::Int=7)
-    nx, ny, np = size(m.spectra)
-    mask = falses(nx, ny, np)
+    np, nx, ny = size(m.spectra)
+    mask = falses(np, nx, ny)
 
     # Determine channel range for detection
     pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, :pixel_range, nothing)
@@ -411,7 +411,7 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
 
         for k in 1:n_ch
             if residual[k] - med_r > Float64(threshold) * σ
-                mask[ix, iy, k + p1 - 1] = true
+                mask[k + p1 - 1, ix, iy] = true
             end
         end
 
@@ -422,10 +422,10 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
 
         # Safety: if too many channels remain flagged after the width filter,
         # it's spatial variation, not cosmic rays. Clear all flags.
-        remaining = count(@view mask[ix, iy, p1:p2])
+        remaining = count(@view mask[p1:p2, ix, iy])
         if remaining > n_ch ÷ 20  # > 5% of channels
             for k in p1:p2
-                mask[ix, iy, k] = false
+                mask[k, ix, iy] = false
             end
         end
     end
@@ -434,7 +434,7 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
     affected = 0
     for iy in 1:ny
         for ix in 1:nx
-            if any(@view mask[ix, iy, :])
+            if any(@view mask[:, ix, iy])
                 affected += 1
             end
         end
@@ -442,7 +442,7 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
 
     channel_counts = zeros(Int, np)
     for k in 1:np
-        channel_counts[k] = count(@view mask[:, :, k])
+        channel_counts[k] = count(@view mask[k, :, :])
     end
 
     return CosmicRayMapResult(mask, total, affected, channel_counts)
@@ -475,7 +475,7 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
         return m
     end
 
-    nx, ny, np = size(m.spectra)
+    np, nx, ny = size(m.spectra)
     cleaned = copy(m.spectra)
 
     # Use same channel range as detection
@@ -486,19 +486,19 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
 
     Threads.@threads for idx in CartesianIndices((nx, ny))
         ix, iy = idx[1], idx[2]
-        any(@view result.mask[ix, iy, :]) || continue
+        any(@view result.mask[:, ix, iy]) || continue
 
         # Find the Most Similar Neighbor (MSN) for this pixel
         neighbors = _neighbor_spectra(m.spectra, ix, iy, nx, ny, p1, p2)
 
         if isempty(neighbors)
             # Edge case: no neighbors — fall back to spectral interpolation
-            flagged_channels = findall(@view result.mask[ix, iy, :])
+            flagged_channels = findall(@view result.mask[:, ix, iy])
             cr_1d = CosmicRayResult(flagged_channels, length(flagged_channels))
             signal = pixel_view(m, ix, iy)
             interp = remove_cosmic_rays(signal, cr_1d)
             for ch in flagged_channels
-                cleaned[ix, iy, ch] = interp[ch]
+                cleaned[ch, ix, iy] = interp[ch]
             end
             continue
         end
@@ -512,7 +512,7 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
         sig_sum = 0.0
         msn_sum = 0.0
         for k in 1:n_ch
-            if !result.mask[ix, iy, k + p1 - 1]
+            if !result.mask[k + p1 - 1, ix, iy]
                 sig_sum += signal[k]
                 msn_sum += msn[k]
             end
@@ -521,8 +521,8 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
 
         # Replace flagged channels with scaled MSN values
         for k in 1:n_ch
-            if result.mask[ix, iy, k + p1 - 1]
-                cleaned[ix, iy, k + p1 - 1] = scale * msn[k]
+            if result.mask[k + p1 - 1, ix, iy]
+                cleaned[k + p1 - 1, ix, iy] = scale * msn[k]
             end
         end
     end
@@ -531,9 +531,9 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
     pixel_range = get(m.metadata, :pixel_range, nothing)
     if !isnothing(pixel_range)
         rp1, rp2 = pixel_range
-        new_intensity = dropdims(sum(cleaned[:, :, Int(rp1):Int(rp2)]; dims=3); dims=3)
+        new_intensity = dropdims(sum((@view cleaned[Int(rp1):Int(rp2), :, :]); dims=1); dims=1)
     else
-        new_intensity = dropdims(sum(cleaned; dims=3); dims=3)
+        new_intensity = dropdims(sum(cleaned; dims=1); dims=1)
     end
 
     return PLMap(new_intensity, cleaned, m.x, m.y, m.pixel, m.metadata)

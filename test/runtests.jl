@@ -328,7 +328,7 @@ Random.seed!(42)
         @test_throws ArgumentError add_spectra(m, m)
         @test_throws ArgumentError divide_spectra(m, m)
         @test_throws ArgumentError multiply_spectrum(m, 2.0)
-        p = PLMap(rand(2, 2), rand(2, 2, 3), [0.0, 1.0], [0.0, 1.0], [1.0, 2.0, 3.0])
+        p = PLMap(rand(2, 2), rand(3, 2, 2), [0.0, 1.0], [0.0, 1.0], [1.0, 2.0, 3.0])
         @test_throws ArgumentError multiply_spectrum(p, 2.0)
     end
 
@@ -2111,27 +2111,45 @@ Random.seed!(42)
     @testset "PLMap type and analysis" begin
         # Build synthetic PLMap: 5×5 grid, 20 pixels per spectrum
         nx, ny, np = 5, 5, 20
-        spectra = rand(nx, ny, np)
+        spectra = rand(np, nx, ny)
         # Add a Gaussian peak at pixel 10 for center points
         for ix in 2:4, iy in 2:4
             for k in 1:np
-                spectra[ix, iy, k] += 5.0 * exp(-((k - 10)^2) / 4)
+                spectra[k, ix, iy] += 5.0 * exp(-((k - 10)^2) / 4)
             end
         end
         pixel = collect(1.0:np)
         x = collect(range(-2.0, 2.0, length=nx))
         y = collect(range(-2.0, 2.0, length=ny))
-        int_matrix = dropdims(sum(spectra; dims=3); dims=3)
+        int_matrix = dropdims(sum(spectra; dims=1); dims=1)
         meta = Dict{Symbol,Any}(:source_file => "synthetic.lvm",
                                  :nx => nx, :ny => ny, :pixel_range => nothing)
         m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
         # Accessor seam (issue #47): pixel_view / eachpixel / spectra_matrix
-        @test collect(pixel_view(m, 2, 3)) == spectra[2, 3, :]
+        @test collect(pixel_view(m, 2, 3)) == spectra[:, 2, 3]
         @test size(spectra_matrix(m)) == (np, nx * ny)
-        @test spectra_matrix(m)[:, 2] == spectra[2, 1, :]   # column-major: pixel (2,1)
+        @test spectra_matrix(m)[:, 2] == spectra[:, 2, 1]   # column-major: pixel (2,1)
         @test length(collect(eachpixel(m))) == nx * ny
-        @test extract_spectrum(m, 2, 3).signal == spectra[2, 3, :]
+        @test extract_spectrum(m, 2, 3).signal == spectra[:, 2, 3]
+
+        # Channel-major win: per-pixel view is contiguous (unit-stride) and alloc-free
+        @test pixel_view(m, 1, 1) isa SubArray
+        @test strides(pixel_view(m, 1, 1)) == (1,)
+        let
+            read_all(mm) = begin
+                acc = 0.0
+                for iy in 1:length(mm.y), ix in 1:length(mm.x)
+                    acc += sum(pixel_view(mm, ix, iy))
+                end
+                acc
+            end
+            read_all(m)                              # warm up / compile
+            @test (@allocated read_all(m)) == 0
+        end
+
+        # Constructor guard: spectra must be channel-major (n_pixel, nx, ny)
+        @test_throws DimensionMismatch PLMap(int_matrix, rand(np, nx, ny + 1), x, y, pixel)
 
         # Type and interface
         @test m isa AbstractSpectroscopyData
@@ -2233,11 +2251,11 @@ Random.seed!(42)
         ys = collect(1.0:ny)
 
         function make_map(profile::Vector{Float64})
-            spectra = zeros(nx, ny, np)
+            spectra = zeros(np, nx, ny)
             for ix in 1:nx, iy in 1:ny
-                spectra[ix, iy, :] .= profile .+ 0.05
+                spectra[:, ix, iy] .= profile .+ 0.05
             end
-            intens = dropdims(sum(spectra; dims=3); dims=3)
+            intens = dropdims(sum(spectra; dims=1); dims=1)
             return PLMap(intens, spectra, xs, ys, pixel)
         end
 
@@ -2279,10 +2297,10 @@ Random.seed!(42)
         # what a file loader does when called with `pixel_range=(p1, p2)`. Operations
         # like subtract_background should honor this range when recomputing intensity.
         nx, ny, np = 5, 5, 30
-        spectra = rand(nx, ny, np)
+        spectra = rand(np, nx, ny)
         # Put a Gaussian peak around pixel 15, centered spatially
         for ix in 2:4, iy in 2:4, k in 1:np
-            spectra[ix, iy, k] += 5.0 * exp(-((k - 15)^2) / 4)
+            spectra[k, ix, iy] += 5.0 * exp(-((k - 15)^2) / 4)
         end
         pixel = collect(1.0:np)
         x = collect(range(-2.0, 2.0, length=nx))
@@ -2290,7 +2308,7 @@ Random.seed!(42)
 
         # Intensity integrated over a restricted pixel range
         p1, p2 = 10, 20
-        int_matrix = dropdims(sum(spectra[:, :, p1:p2]; dims=3); dims=3)
+        int_matrix = dropdims(sum(spectra[p1:p2, :, :]; dims=1); dims=1)
         meta = Dict{Symbol,Any}(:source_file => "synthetic.lvm",
                                  :nx => nx, :ny => ny,
                                  :pixel_range => (p1, p2))
@@ -2298,7 +2316,7 @@ Random.seed!(42)
 
         # subtract_background should recompute intensity using the same pixel_range
         mb = subtract_background(m)
-        expected = dropdims(sum(mb.spectra[:, :, p1:p2]; dims=3); dims=3)
+        expected = dropdims(sum(mb.spectra[p1:p2, :, :]; dims=1); dims=1)
         @test mb.intensity ≈ expected
     end
 
@@ -2387,121 +2405,121 @@ Random.seed!(42)
 
         @testset "PLMap detection — isolated spikes detected" begin
             nx, ny, np = 5, 5, 100
-            spectra = zeros(nx, ny, np)
+            spectra = zeros(np, nx, ny)
             for ix in 1:nx, iy in 1:ny, k in 1:np
-                spectra[ix, iy, k] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
+                spectra[k, ix, iy] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
             end
 
             # Inject isolated spike at (3, 3, 25)
-            spectra[3, 3, 25] += 100.0
+            spectra[25, 3, 3] += 100.0
 
             pixel = collect(1.0:np)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
-            int_matrix = dropdims(sum(spectra; dims=3); dims=3)
+            int_matrix = dropdims(sum(spectra; dims=1); dims=1)
             meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
             @test cr isa CosmicRayMapResult
-            @test cr.mask[3, 3, 25] == true
+            @test cr.mask[25, 3, 3] == true
             @test cr.count >= 1
             @test cr.affected_spectra >= 1
         end
 
         @testset "PLMap detection — shared features not flagged" begin
             nx, ny, np = 5, 5, 100
-            spectra = zeros(nx, ny, np)
+            spectra = zeros(np, nx, ny)
             for ix in 1:nx, iy in 1:ny, k in 1:np
-                spectra[ix, iy, k] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
+                spectra[k, ix, iy] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
             end
 
             # Inject a sharp feature at channel 60 across a 3×3 block
             # All 4 neighbors of (3,3) share the feature → residual ≈ 0 → not flagged
             for ix in 2:4, iy in 2:4
-                spectra[ix, iy, 60] += 50.0
+                spectra[60, ix, iy] += 50.0
             end
 
             pixel = collect(1.0:np)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
-            int_matrix = dropdims(sum(spectra; dims=3); dims=3)
+            int_matrix = dropdims(sum(spectra; dims=1); dims=1)
             meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
             # All 4 neighbors of (3,3) have the feature → median reference ≈ feature value
             # → residual at channel 60 ≈ 0 → not flagged
-            @test cr.mask[3, 3, 60] == false
+            @test cr.mask[60, 3, 3] == false
         end
 
         @testset "PLMap detection — wide spike with shoulders" begin
             nx, ny, np = 5, 5, 100
-            spectra = zeros(nx, ny, np)
+            spectra = zeros(np, nx, ny)
             for ix in 1:nx, iy in 1:ny, k in 1:np
-                spectra[ix, iy, k] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
+                spectra[k, ix, iy] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
             end
 
             # Inject a wide spike with shoulders at (3, 3)
-            spectra[3, 3, 48] += 15.0   # left shoulder
-            spectra[3, 3, 49] += 40.0   # left flank
-            spectra[3, 3, 50] += 100.0  # peak
-            spectra[3, 3, 51] += 60.0   # right flank
-            spectra[3, 3, 52] += 10.0   # right shoulder
+            spectra[48, 3, 3] += 15.0   # left shoulder
+            spectra[49, 3, 3] += 40.0   # left flank
+            spectra[50, 3, 3] += 100.0  # peak
+            spectra[51, 3, 3] += 60.0   # right flank
+            spectra[52, 3, 3] += 10.0   # right shoulder
 
             pixel = collect(1.0:np)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
-            int_matrix = dropdims(sum(spectra; dims=3); dims=3)
+            int_matrix = dropdims(sum(spectra; dims=1); dims=1)
             meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
             # All channels of the wide spike should be caught
-            @test cr.mask[3, 3, 50] == true  # peak
-            @test cr.mask[3, 3, 49] == true  # left flank
-            @test cr.mask[3, 3, 51] == true  # right flank
-            @test cr.mask[3, 3, 48] == true  # left shoulder
-            @test cr.mask[3, 3, 52] == true  # right shoulder
+            @test cr.mask[50, 3, 3] == true  # peak
+            @test cr.mask[49, 3, 3] == true  # left flank
+            @test cr.mask[51, 3, 3] == true  # right flank
+            @test cr.mask[48, 3, 3] == true  # left shoulder
+            @test cr.mask[52, 3, 3] == true  # right shoulder
         end
 
         @testset "PLMap detection — edge pixel" begin
             nx, ny, np = 5, 5, 100
-            spectra = zeros(nx, ny, np)
+            spectra = zeros(np, nx, ny)
             for ix in 1:nx, iy in 1:ny, k in 1:np
-                spectra[ix, iy, k] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
+                spectra[k, ix, iy] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
             end
 
             # Inject spike at corner pixel (1, 1) — only 2 neighbors
-            spectra[1, 1, 30] += 100.0
+            spectra[30, 1, 1] += 100.0
 
             pixel = collect(1.0:np)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
-            int_matrix = dropdims(sum(spectra; dims=3); dims=3)
+            int_matrix = dropdims(sum(spectra; dims=1); dims=1)
             meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
             cr = detect_cosmic_rays(m; threshold=5.0)
-            @test cr.mask[1, 1, 30] == true
+            @test cr.mask[30, 1, 1] == true
             @test cr.count >= 1
         end
 
         @testset "PLMap removal — cleaned spectra match originals" begin
             nx, ny, np = 5, 5, 100
-            spectra = zeros(nx, ny, np)
+            spectra = zeros(np, nx, ny)
             for ix in 1:nx, iy in 1:ny, k in 1:np
-                spectra[ix, iy, k] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
+                spectra[k, ix, iy] = 2.0 * exp(-((k - 50)^2) / 200.0) + 0.5 + 0.1 * randn()
             end
             original_spectra = copy(spectra)
 
             # Inject isolated spike
-            spectra[2, 2, 30] += 100.0
+            spectra[30, 2, 2] += 100.0
 
             pixel = collect(1.0:np)
             x = collect(1.0:nx)
             y = collect(1.0:ny)
-            int_matrix = dropdims(sum(spectra; dims=3); dims=3)
+            int_matrix = dropdims(sum(spectra; dims=1); dims=1)
             meta = Dict{Symbol,Any}(:source_file => "test", :pixel_range => nothing)
             m = PLMap(int_matrix, spectra, x, y, pixel, meta)
 
@@ -2510,9 +2528,9 @@ Random.seed!(42)
 
             @test cleaned isa PLMap
             # Cleaned value at spike should be close to original (within noise + interpolation)
-            @test abs(cleaned.spectra[2, 2, 30] - original_spectra[2, 2, 30]) < 2.0
+            @test abs(cleaned.spectra[30, 2, 2] - original_spectra[30, 2, 2]) < 2.0
             # Non-spike values should be unchanged
-            @test cleaned.spectra[1, 1, 50] ≈ spectra[1, 1, 50]
+            @test cleaned.spectra[50, 1, 1] ≈ spectra[50, 1, 1]
         end
 
     end
@@ -2964,13 +2982,13 @@ Random.seed!(42)
         true_center(ix, iy) = 90.0 + 2.0 * ix + 1.0 * iy
         σ_true = 5.0
         amp_true(ix, iy) = 3.0 + 0.1 * ix
-        spectra = zeros(nx, ny, np)
+        spectra = zeros(np, nx, ny)
         for ix in 1:nx, iy in 1:ny
-            spectra[ix, iy, :] .= gaussian([amp_true(ix, iy), true_center(ix, iy), σ_true], pixel) .+ 0.05
+            spectra[:, ix, iy] .= gaussian([amp_true(ix, iy), true_center(ix, iy), σ_true], pixel) .+ 0.05
         end
         # Dark column ix=1: kill the signal so threshold masking excludes it
-        spectra[1, :, :] .= 0.001
-        intens = dropdims(sum(spectra; dims=3); dims=3)
+        spectra[:, 1, :] .= 0.001
+        intens = dropdims(sum(spectra; dims=1); dims=1)
         m = PLMap(intens, spectra, xs, ys, pixel)
 
         progress_calls = Threads.Atomic{Int}(0)
@@ -3036,11 +3054,11 @@ Random.seed!(42)
         pixel = collect(1.0:np)
         xs = collect(0.0:4.0)
         ys = collect(0.0:3.0)
-        spectra = zeros(nx, ny, np)
+        spectra = zeros(np, nx, ny)
         for ix in 1:nx, iy in 1:ny
-            spectra[ix, iy, :] .= Float64(ix)   # flat spectra, value = ix
+            spectra[:, ix, iy] .= Float64(ix)   # flat spectra, value = ix
         end
-        intens = dropdims(sum(spectra; dims=3); dims=3)  # = ix * np
+        intens = dropdims(sum(spectra; dims=1); dims=1)  # = ix * np
         m = PLMap(intens, spectra, xs, ys, pixel)
 
         # No pixel_range and no metadata: passthrough of m.intensity
@@ -3086,13 +3104,13 @@ Random.seed!(42)
         pixel = collect(1.0:np)
         spec_a = gaussian([1.0, 40.0, 6.0], pixel)    # species A
         spec_b = gaussian([1.0, 85.0, 9.0], pixel)    # species B
-        spectra = zeros(nx, ny, np)
+        spectra = zeros(np, nx, ny)
         for ix in 1:nx, iy in 1:ny
             w_a = ix <= nx ÷ 2 ? 5.0 + 0.2 * iy : 0.5
             w_b = ix > nx ÷ 2 ? 4.0 + 0.3 * iy : 0.4
-            spectra[ix, iy, :] .= w_a .* spec_a .+ w_b .* spec_b .+ 0.005 .* rand(np)
+            spectra[:, ix, iy] .= w_a .* spec_a .+ w_b .* spec_b .+ 0.005 .* rand(np)
         end
-        intens = dropdims(sum(spectra; dims=3); dims=3)
+        intens = dropdims(sum(spectra; dims=1); dims=1)
         m = PLMap(intens, spectra, collect(1.0:nx), collect(1.0:ny), pixel)
 
         # --- PCA ---

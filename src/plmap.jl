@@ -15,7 +15,8 @@ stored in `spectra` for extraction at individual positions.
 
 # Fields
 - `intensity::Matrix{Float64}` — Integrated PL intensity `(nx, ny)`
-- `spectra::Array{Float64,3}` — Raw CCD counts `(nx, ny, n_pixel)`
+- `spectra::Array{Float64,3}` — Raw CCD counts, **channel-major** `(n_pixel, nx, ny)`
+  (one pixel's spectrum is the contiguous first axis — see [`pixel_view`](@ref))
 - `x::Vector{Float64}` — Spatial x positions (μm)
 - `y::Vector{Float64}` — Spatial y positions (μm)
 - `pixel::Vector{Float64}` — Pixel indices (or wavelength if calibrated)
@@ -26,11 +27,20 @@ stored in `spectra` for extraction at individual positions.
 """
 struct PLMap <: AbstractSpectroscopyData
     intensity::Matrix{Float64}
-    spectra::Array{Float64,3}
+    spectra::Array{Float64,3}   # channel-major: (n_pixel, nx, ny)
     x::Vector{Float64}
     y::Vector{Float64}
     pixel::Vector{Float64}
     metadata::Dict{Symbol,Any}
+
+    function PLMap(intensity, spectra, x, y, pixel, metadata)
+        size(spectra) == (length(pixel), length(x), length(y)) || throw(DimensionMismatch(
+            "PLMap.spectra must be channel-major (n_pixel, nx, ny) = " *
+            "($(length(pixel)), $(length(x)), $(length(y))), got $(size(spectra))"))
+        size(intensity) == (length(x), length(y)) || throw(DimensionMismatch(
+            "PLMap.intensity must be (nx, ny) = ($(length(x)), $(length(y))), got $(size(intensity))"))
+        return new(intensity, spectra, x, y, pixel, metadata)
+    end
 end
 
 PLMap(intensity, spectra, x, y, pixel) =
@@ -79,22 +89,24 @@ intensity(m::PLMap) = m.intensity
 View (no copy) of the CCD spectrum at grid index `(ix, iy)`. With the
 channel-major cube layout this is a unit-stride, allocation-free column.
 """
-@inline pixel_view(m::PLMap, ix::Integer, iy::Integer) = @view m.spectra[ix, iy, :]
+@inline pixel_view(m::PLMap, ix::Integer, iy::Integer) = @view m.spectra[:, ix, iy]
 
 """
     eachpixel(m::PLMap)
 
-Iterator over per-pixel spectrum views, in column-major grid order (`ix` fastest).
+Iterator over per-pixel spectrum views (contiguous columns), in column-major grid
+order (`ix` fastest).
 """
-eachpixel(m::PLMap) = (pixel_view(m, ix, iy) for iy in 1:length(m.y), ix in 1:length(m.x))
+eachpixel(m::PLMap) = eachslice(m.spectra; dims=(2, 3))
 
 """
     spectra_matrix(m::PLMap) -> AbstractMatrix
 
-The cube as an `(n_pixel, nx*ny)` matrix — each column is one pixel's spectrum.
+The cube as a contiguous `(n_pixel, nx*ny)` matrix view — each column is one pixel's
+spectrum. Zero-copy.
 """
 spectra_matrix(m::PLMap) =
-    permutedims(reshape(m.spectra, length(m.x) * length(m.y), length(m.pixel)))
+    reshape(m.spectra, length(m.pixel), length(m.x) * length(m.y))
 
 function Base.show(io::IO, m::PLMap)
     nx, ny = length(m.x), length(m.y)
@@ -168,9 +180,9 @@ using the same `pixel_range` as the original load (if any).
 
 # Example
 ```julia
-# spectra: (nx, ny, n_pixel) CCD counts; x, y: stage positions (μm)
-intensity = dropdims(sum(spectra; dims=3); dims=3)
-m = PLMap(intensity, spectra, x, y, collect(1.0:size(spectra, 3)))
+# spectra: (n_pixel, nx, ny) CCD counts; x, y: stage positions (μm)
+intensity = dropdims(sum(spectra; dims=1); dims=1)
+m = PLMap(intensity, spectra, x, y, collect(1.0:size(spectra, 1)))
 
 # Explicit background positions
 m_bg = subtract_background(m; positions=[(-40, -40), (40, -40), (-40, -20)])
@@ -198,7 +210,7 @@ function subtract_background(m::PLMap; positions=nothing, margin::Int=5)
         bg_positions = Tuple{Float64,Float64}[]
         for ix in [1:margin; (nx-margin+1):nx]
             for iy in 1:margin
-                bg_spectra .+= vec(m.spectra[ix, iy, :])
+                bg_spectra .+= pixel_view(m, ix, iy)
                 push!(bg_positions, (m.x[ix], m.y[iy]))
             end
         end
@@ -208,15 +220,15 @@ function subtract_background(m::PLMap; positions=nothing, margin::Int=5)
     end
 
     # Subtract background spectrum from every grid point
-    corrected = m.spectra .- reshape(bg_spectra, 1, 1, :)
+    corrected = m.spectra .- reshape(bg_spectra, :, 1, 1)
 
     # Recompute intensity with the same pixel_range as the original
     pixel_range = get(m.metadata, :pixel_range, nothing)
     if !isnothing(pixel_range)
         p1, p2 = pixel_range
-        intensity = dropdims(sum(corrected[:, :, p1:p2]; dims=3); dims=3)
+        intensity = dropdims(sum((@view corrected[p1:p2, :, :]); dims=1); dims=1)
     else
-        intensity = dropdims(sum(corrected; dims=3); dims=3)
+        intensity = dropdims(sum(corrected; dims=1); dims=1)
     end
 
     new_metadata = copy(m.metadata)
@@ -258,7 +270,7 @@ end
 Compute the integrated intensity at each grid point.
 
 Without `pixel_range`, returns `m.intensity` (the precomputed full-range sum).
-With `pixel_range`, sums `m.spectra[:, :, p1:p2]` over the given pixel window.
+With `pixel_range`, sums `m.spectra[p1:p2, :, :]` over the given pixel window.
 
 # Arguments
 - `pixel_range`: `(start, stop)` pixel indices to integrate over.
@@ -269,7 +281,7 @@ function integrated_intensity(m::PLMap; pixel_range::Union{Tuple{Int,Int},Nothin
     if !isnothing(pr)
         p1 = max(1, pr[1])
         p2 = min(length(m.pixel), pr[2])
-        return dropdims(sum(m.spectra[:, :, p1:p2]; dims=3); dims=3)
+        return dropdims(sum((@view m.spectra[p1:p2, :, :]); dims=1); dims=1)
     else
         return m.intensity
     end
@@ -412,7 +424,7 @@ function peak_centers(m::PLMap; pixel_range::Union{Tuple{Int,Int},Nothing}=nothi
         p1 = max(1, pr[1])
         p2 = min(length(m.pixel), pr[2])
         pixels = m.pixel[p1:p2]
-        spectra_slice = @view m.spectra[:, :, p1:p2]
+        spectra_slice = @view m.spectra[p1:p2, :, :]
     else
         pixels = m.pixel
         spectra_slice = m.spectra
@@ -430,7 +442,7 @@ function peak_centers(m::PLMap; pixel_range::Union{Tuple{Int,Int},Nothing}=nothi
         if m.intensity[ix, iy] <= cutoff
             centers[ix, iy] = NaN
         else
-            sig = @view spectra_slice[ix, iy, :]
+            sig = @view spectra_slice[:, ix, iy]
             total = sum(sig)
             centers[ix, iy] = sum(pixels[k] * sig[k] for k in eachindex(sig)) / total
         end
