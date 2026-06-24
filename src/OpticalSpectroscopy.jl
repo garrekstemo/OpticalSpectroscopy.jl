@@ -57,6 +57,7 @@ export kinetic_trace, spectral_slice, integrate_time, bin_matrix
 
 # PL/Raman spatial mapping
 export PLMap, extract_spectrum, peak_centers, intensity
+export pixel_view, eachpixel, spectra_matrix
 export integrated_intensity, intensity_mask, fit_map, FitMapResult
 
 # Cosmic ray detection/removal (1D, PLMap, TimeResolvedMatrix)

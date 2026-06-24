@@ -58,6 +58,9 @@ DecompositionResult
 ```@docs
 normalize_intensity
 intensity
+pixel_view
+eachpixel
+spectra_matrix
 ```
 
 ## Cosmic Ray Detection and Removal

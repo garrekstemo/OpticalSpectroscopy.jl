@@ -50,7 +50,7 @@ Returns `(data_matrix, spectral_indices)` where `spectral_indices` is the
 range of indices into the original pixel axis.
 """
 function _prepare_map_matrix(m::PLMap; pixel_range=nothing)
-    nx, ny, n_pixel = size(m.spectra)
+    n_pixel, nx, ny = size(m.spectra)
 
     if !isnothing(pixel_range)
         p1 = max(1, pixel_range[1])
@@ -60,11 +60,14 @@ function _prepare_map_matrix(m::PLMap; pixel_range=nothing)
         spec_range = 1:n_pixel
     end
 
-    # Reshape (nx, ny, n_spectral) -> (nx*ny, n_spectral)
-    spectra_slice = @view m.spectra[:, :, spec_range]
-    data = reshape(spectra_slice, nx * ny, length(spec_range))
+    # Channel-major cube -> contiguous (n_pixel, nx*ny) matrix; restrict the
+    # spectral axis, then transpose to the (n_spatial, n_spectral) contract that
+    # pca_map / nmf_map expect (a one-time copy; decomposition is not the hot path).
+    mat = spectra_matrix(m)            # (n_pixel, nx*ny)
+    sub = @view mat[spec_range, :]     # (n_spectral, n_spatial)
+    data = Float64.(permutedims(sub))  # (n_spatial, n_spectral)
 
-    return Float64.(data), spec_range, nx, ny
+    return data, spec_range, nx, ny
 end
 
 # =============================================================================

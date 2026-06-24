@@ -2,7 +2,7 @@
 
 This tutorial walks through the PLMap analysis workflow: extracting spectra at spatial positions, choosing a PL pixel range, subtracting a background spectrum, detecting and removing cosmic rays, and mapping peak intensity and peak center across the spatial grid.
 
-`PLMap` is a 2D spatial grid where each point stores a full CCD spectrum — a data cube with shape `(nx, ny, n_pixel)`. It is the general container for PL and Raman raster scans.
+`PLMap` is a 2D spatial grid where each point stores a full CCD spectrum — a data cube stored **channel-major** with shape `(n_pixel, nx, ny)`, so one pixel's full spectrum is a contiguous column (see [`pixel_view`](@ref)). It is the general container for PL and Raman raster scans.
 
 Assuming you have a `PLMap` (load one from your preferred file loader, or construct one directly; see [Constructing a PLMap](#constructing-a-plmap) below).
 
@@ -20,7 +20,7 @@ using Random
 If you are not using a lab-specific loader, you can build a `PLMap` directly from arrays. The constructor takes:
 
 - `intensity::Matrix{Float64}` — integrated PL at each position `(nx, ny)`
-- `spectra::Array{Float64,3}` — full CCD data cube `(nx, ny, n_pixel)`
+- `spectra::Array{Float64,3}` — full CCD data cube, **channel-major** `(n_pixel, nx, ny)`
 - `x::Vector{Float64}` — spatial x positions (μm)
 - `y::Vector{Float64}` — spatial y positions (μm)
 - `pixel::Vector{Float64}` — pixel indices (or calibrated wavelength)
@@ -42,21 +42,21 @@ bg = 1200.0 .* exp.(-(pixel .- 50.0).^2 ./ (2 * 30.0^2)) .+ 50.0
 # Gaussian "flake" envelope in spatial coordinates
 flake = [exp(-((xi^2 + yi^2) / (2 * 18.0^2))) for xi in x, yi in y]
 
-# Build the data cube: bg (everywhere) + PL band near pixel 1030 (scaled by flake)
-spectra = Array{Float64,3}(undef, nx, ny, np)
+# Build the data cube (channel-major): bg (everywhere) + PL band near pixel 1030 (scaled by flake)
+spectra = Array{Float64,3}(undef, np, nx, ny)
 pl_profile = 300.0 .* exp.(-(pixel .- 1030.0).^2 ./ (2 * 22.0^2))
 for ix in 1:nx, iy in 1:ny
-    spectra[ix, iy, :] = bg .+ flake[ix, iy] .* pl_profile .+ 5.0 .* randn(np)
+    spectra[:, ix, iy] = bg .+ flake[ix, iy] .* pl_profile .+ 5.0 .* randn(np)
 end
 
 # Sprinkle in a few cosmic ray spikes
 for _ in 1:12
     ix = rand(1:nx); iy = rand(1:ny); ip = rand(200:1800)
-    spectra[ix, iy, ip] += 4000.0
+    spectra[ip, ix, iy] += 4000.0
 end
 
-# Initial integrated intensity (full range)
-intensity = dropdims(sum(spectra; dims=3); dims=3)
+# Initial integrated intensity (full range; channel axis is dim 1)
+intensity = dropdims(sum(spectra; dims=1); dims=1)
 
 metadata = Dict{String,Any}(
     "source_file" => "simulated.lvm",
@@ -129,7 +129,7 @@ Integrate only over the PL emission pixels (950–1100). This removes the laser 
 
 ```julia
 pr = (950, 1100)
-intensity_pr = dropdims(sum(m_raw.spectra[:, :, pr[1]:pr[2]]; dims=3); dims=3)
+intensity_pr = dropdims(sum(m_raw.spectra[pr[1]:pr[2], :, :]; dims=1); dims=1)
 
 md_pr = copy(m_raw.metadata)
 md_pr["pixel_range"] = pr
@@ -242,7 +242,7 @@ println("Found $(cr.count) cosmic ray spikes in $(cr.affected_spectra) spectra")
 
 The result is a `CosmicRayMapResult` with:
 
-- `mask` — 3D `BitArray` `(nx, ny, n_pixel)`, `true` at spike locations
+- `mask` — 3D `BitArray` `(n_pixel, nx, ny)`, `true` at spike locations
 - `count` — total number of flagged voxels
 - `affected_spectra` — number of spectra with at least one spike
 - `channel_counts` — spike count per spectral channel
@@ -250,7 +250,7 @@ The result is a `CosmicRayMapResult` with:
 ### Visualize spike locations
 
 ```julia
-cr_counts = dropdims(sum(cr.mask; dims=3); dims=3)
+cr_counts = dropdims(sum(cr.mask; dims=1); dims=1)
 
 fig = Figure(size=(500, 450))
 ax = Axis(fig[1, 1], xlabel="X (μm)", ylabel="Y (μm)",
