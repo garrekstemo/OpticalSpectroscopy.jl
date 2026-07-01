@@ -1,26 +1,26 @@
 ==============================================================================
 PLMap Performance Benchmark
-Julia 1.12.5, Threads: 12
+Julia 1.12.6, Threads: 12
 ==============================================================================
 
-Creating synthetic PLMap (51x51x512)... done (0.01s)
+Creating synthetic PLMap (51x51x512)... done (0.02s)
 
 Running benchmarks (3 runs each, reporting median)...
 ------------------------------------------------------------------------------
-  (CR detection found 139 cosmic ray voxels in 87 spectra)
+  (CR detection found 160 cosmic ray voxels in 105 spectra)
 
 ==============================================================================
 Results
 ==============================================================================
 Operation                                Median        Min           Memory        Allocs
 -----------------------------------------------------------------------------------------
-detect_cosmic_rays(PLMap, threshold=20)  480.7 ms      461.0 ms      642.7 MiB     673938304
-remove_cosmic_rays(PLMap)                17.8 ms       17.4 ms       24.2 MiB      25413072
-peak_centers(PLMap)                      109.1 ms      103.3 ms      183.5 MiB     192373824
-correct_baseline(spectrum, :arpls)       11.5 ms       10.4 ms       44.2 MiB      46380640
-savitzky_golay_smooth(spectrum)          8.5 us        8.0 us        124.0 KiB     126976
-smooth_data(spectrum, window=5)          1.9 us        1.8 us        4.1 KiB       4160
-nmf_map(PLMap, 3 components)             119.7 ms      114.9 ms      671.0 MiB     703542128
+detect_cosmic_rays(PLMap, threshold=20)  9.1 ms        8.9 ms        47.9 MiB      50201168
+remove_cosmic_rays(PLMap)                3.1 ms        1.6 ms        10.3 MiB      10780736
+peak_centers(PLMap)                      26.5 ms       24.7 ms       183.5 MiB     192379184
+correct_baseline(spectrum, :arpls)       3.7 ms        3.5 ms        7.4 MiB       7803744
+savitzky_golay_smooth(spectrum)          11.2 us       7.6 us        124.0 KiB     126976
+smooth_data(spectrum, window=5)          2.4 us        2.3 us        4.1 KiB       4160
+nmf_map(PLMap, 3 components)             154.1 ms      140.3 ms      51.3 MiB      53815520
 
 Map size: 51x51 spatial, 512 spectral channels
 Spectrum length: 512 points

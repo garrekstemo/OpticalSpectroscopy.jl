@@ -278,34 +278,34 @@ the absolute normalized cross-correlation between `ref` and `col`.
 function _xcorr_peak(ref, col, max_lag)
     n = length(ref)
 
-    # Normalize (zero mean, unit energy)
+    # Zero-mean; scale is handled per lag below
     ref_m = ref .- mean(ref)
     col_m = col .- mean(col)
-    ref_e = sqrt(sum(ref_m .^ 2))
-    col_e = sqrt(sum(col_m .^ 2))
 
-    if ref_e < eps() || col_e < eps()
+    if sum(abs2, ref_m) < eps() || sum(abs2, col_m) < eps()
         return 0.0
     end
 
-    ref_n = ref_m ./ ref_e
-    col_n = col_m ./ col_e
-
-    # Compute normalized cross-correlation at each lag
+    # Per-lag energy-normalized cross-correlation over the overlap window.
+    # Dividing by the overlap count n − |lag| biases the peak toward large
+    # lags (fewer samples inflate the average); normalizing each lag by the
+    # energies inside its own overlap window removes both that bias and the
+    # tilt the global mean subtraction leaves in the raw sums.
     n_lags = 2 * max_lag + 1
     corr = Vector{Float64}(undef, n_lags)
 
     for (i, lag) in enumerate(-max_lag:max_lag)
         s = 0.0
-        count = 0
-        for t in 1:n
-            t2 = t + lag
-            if 1 <= t2 <= n
-                s += ref_n[t] * col_n[t2]
-                count += 1
-            end
+        e_ref = 0.0
+        e_col = 0.0
+        for t in max(1, 1 - lag):min(n, n - lag)
+            r = ref_m[t]
+            c = col_m[t + lag]
+            s += r * c
+            e_ref += r * r
+            e_col += c * c
         end
-        corr[i] = count > 0 ? s / count : 0.0
+        corr[i] = (e_ref > eps() && e_col > eps()) ? s / sqrt(e_ref * e_col) : 0.0
     end
 
     # Find peak of |correlation|
@@ -313,14 +313,16 @@ function _xcorr_peak(ref, col, max_lag)
     peak_i = argmax(abs_corr)
     best_lag = peak_i - max_lag - 1
 
-    # Parabolic interpolation for sub-sample precision
+    # Parabolic interpolation for sub-sample precision: the vertex of the
+    # parabola through (−1, y_m), (0, y₀), (+1, y_p) sits at
+    # (y_p − y_m) / (2(2y₀ − y_m − y_p)).
     if peak_i > 1 && peak_i < n_lags
         y_m = abs_corr[peak_i - 1]
         y_0 = abs_corr[peak_i]
         y_p = abs_corr[peak_i + 1]
         denom = 2 * (2 * y_0 - y_m - y_p)
         if abs(denom) > eps()
-            delta = (y_m - y_p) / denom
+            delta = (y_p - y_m) / denom
             return best_lag + delta
         end
     end
@@ -419,7 +421,7 @@ function _fit_chirp_polynomial(wl, times, order, threshold, ref_λ)
     # MAD-based outlier rejection
     med_res = median(residuals)
     mad = median(abs.(residuals .- med_res))
-    mad_scaled = 1.4826 * mad  # Scale factor for normal distribution consistency
+    mad_scaled = MAD_TO_SIGMA * mad
 
     if mad_scaled > 0
         keep = abs.(residuals .- med_res) .<= threshold * mad_scaled
@@ -600,9 +602,8 @@ function svd_filter(matrix::TimeResolvedMatrix; n_components::Int=5)
         "n_components ($n_components) exceeds matrix rank ($max_components)"))
 
     F = svd(matrix.data)
-    S_filtered = copy(F.S)
-    S_filtered[n_components+1:end] .= 0.0
-    filtered_data = F.U * Diagonal(S_filtered) * F.Vt
+    k = n_components
+    filtered_data = @views F.U[:, 1:k] * Diagonal(F.S[1:k]) * F.Vt[1:k, :]
 
     metadata = copy(matrix.metadata)
     metadata[:svd_filtered] = true
@@ -636,9 +637,8 @@ function svd_filter(x::AbstractVector, y::AbstractVector, data::AbstractMatrix;
         "n_components ($n_components) exceeds matrix rank ($max_components)"))
 
     F = svd(Float64.(data))
-    S_filtered = copy(F.S)
-    S_filtered[n_components+1:end] .= 0.0
-    return F.U * Diagonal(S_filtered) * F.Vt
+    k = n_components
+    return @views F.U[:, 1:k] * Diagonal(F.S[1:k]) * F.Vt[1:k, :]
 end
 
 """

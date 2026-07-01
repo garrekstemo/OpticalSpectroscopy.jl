@@ -37,14 +37,16 @@ function kramers_kronig(omega, chi; type=:imag_to_real)
     h = 2.0 * dw
     imag_to_real = type == :imag_to_real
 
+    w2 = w .^ 2
     for i in eachindex(w)
         s = 0.0
+        wi2 = w2[i]
         for j in eachindex(w)
             if j == i
                 continue
             end
             if isodd(j - i)
-                denom = w[j]^2 - w[i]^2
+                denom = w2[j] - wi2
                 if abs(denom) > eps(Float64)
                     s += (imag_to_real ? w[j] * f[j] : f[j]) / denom
                 end
@@ -71,18 +73,24 @@ function kubelka_munk(R)
 end
 
 """
-    kubelka_munk(s::Spectrum) -> Spectrum
+    kubelka_munk(s::Spectrum; percent=nothing) -> Spectrum
 
-Kubelka-Munk transform of a reflectance [`Spectrum`](@ref). Tags the result with
-the `:kubelka_munk` signal-quantity token (derived label `"F(R)"`) and drops any
+Kubelka-Munk transform of a reflectance [`Spectrum`](@ref). F(R) needs
+*fractional* R: when `percent` is `nothing` (default) the reflectance scale is
+inferred from the `:yunit` token (`:percent` → divide by 100, otherwise
+fractional); pass `percent` explicitly to override. Throws if `:yquantity` is
+present and is not `:reflectance` (no silent guessing — mirrors
+[`transmittance_to_absorbance`](@ref)). Tags the result with the
+`:kubelka_munk` signal-quantity token (derived label `"F(R)"`) and drops any
 stale reflectance signal tokens or literal `:ylabel`, keeping the label derived.
 """
-function kubelka_munk(s::Spectrum)
-    md = copy(s.metadata)
-    delete!(md, :ylabel)
-    md[:yquantity] = :kubelka_munk
-    md[:yunit] = :dimensionless
-    return Spectrum(s.x, kubelka_munk.(s.y), md)
+function kubelka_munk(s::Spectrum; percent::Union{Bool,Nothing}=nothing)
+    q = get(s.metadata, :yquantity, nothing)
+    isnothing(q) || Symbol(q) === :reflectance ||
+        throw(ArgumentError("not a reflectance spectrum (yquantity = $(repr(q)))"))
+    pct = something(percent, Symbol(get(s.metadata, :yunit, :fraction)) === :percent)
+    R = pct ? s.y ./ 100 : s.y
+    return _with_y(s, kubelka_munk.(R), :kubelka_munk, :dimensionless)
 end
 
 """
@@ -112,7 +120,9 @@ function tauc_plot(energy, absorption; gap_type=:direct, fit_range=nothing)
 
     hv = Float64.(energy)
     alpha = Float64.(absorption)
-    tauc_y = @. (alpha * hv) ^ n
+    # Clamp negative α·hν (sub-gap noise) to 0: fractional exponents of a
+    # negative base throw DomainError.
+    tauc_y = @. max(alpha * hv, 0.0) ^ n
 
     # Determine fit range
     if isnothing(fit_range)
@@ -144,7 +154,7 @@ function tauc_plot(energy, absorption; gap_type=:direct, fit_range=nothing)
     x_fit = hv[i_start:i_end]
     y_fit = tauc_y[i_start:i_end]
     n_pts = length(x_fit)
-    n_pts >= 2 || error("Not enough points in fit range for linear regression")
+    n_pts >= 2 || throw(ArgumentError("Not enough points in fit range for linear regression"))
     x_mean = mean(x_fit)
     y_mean = mean(y_fit)
     slope = sum((x_fit .- x_mean) .* (y_fit .- y_mean)) / sum((x_fit .- x_mean).^2)
@@ -198,7 +208,8 @@ Removes multiplicative scatter effects in diffuse reflectance spectra.
 function snv(y::AbstractVector)
     m = mean(y)
     s = std(y)
-    s < eps(Float64) && error("Cannot SNV-normalize: standard deviation is near zero")
+    s < eps(Float64) && throw(ArgumentError(
+        "Cannot SNV-normalize: standard deviation is near zero"))
     return (y .- m) ./ s
 end
 
@@ -242,7 +253,7 @@ function urbach_tail(energy, absorption; fit_range=nothing)
 
     # Work in log space: ln(alpha) = ln(alpha0) + (E - E0) / Eu
     mask = alpha .> 0
-    any(mask) || error("All absorption values are zero or negative")
+    any(mask) || throw(ArgumentError("All absorption values are zero or negative"))
 
     if isnothing(fit_range)
         # Auto-detect: use the lower 30% of the absorption range (sub-gap region)
@@ -261,7 +272,7 @@ function urbach_tail(energy, absorption; fit_range=nothing)
 
     hv_fit = hv[fit_mask]
     log_alpha_fit = log.(alpha[fit_mask])
-    length(hv_fit) >= 2 || error("Not enough points for Urbach fit")
+    length(hv_fit) >= 2 || throw(ArgumentError("Not enough points for Urbach fit"))
 
     # Linear regression in log space
     x_mean = mean(hv_fit)
@@ -303,7 +314,8 @@ function thickness_from_fringes(wavenumber, spectrum; n::Real)
             push!(peak_indices, i)
         end
     end
-    length(peak_indices) >= 2 || error("Need at least 2 fringes to estimate thickness")
+    length(peak_indices) >= 2 || throw(ArgumentError(
+        "Need at least 2 fringes to estimate thickness"))
 
     fringe_positions = wn[peak_indices]
 

@@ -12,8 +12,8 @@ Result of PCA or NMF decomposition of a PLMap.
 # Fields
 - `loadings::Array{Float64,3}` — Spatial maps `(nx, ny, n_components)`
 - `components::Matrix{Float64}` — Spectral profiles `(n_components, n_spectral)`
-- `explained_variance::Vector{Float64}` — Fraction of variance explained (PCA)
-  or reconstruction error per component (NMF)
+- `explained_variance::Vector{Float64}` — Per-component fraction of the total:
+  variance (PCA), or Frobenius norm `‖wₖhₖ‖²/‖V‖²` (NMF)
 """
 struct DecompositionResult
     loadings::Array{Float64,3}
@@ -53,8 +53,10 @@ function _prepare_map_matrix(m::PLMap; pixel_range=nothing)
     n_pixel, nx, ny = size(m.spectra)
 
     if !isnothing(pixel_range)
-        p1 = max(1, pixel_range[1])
-        p2 = min(n_pixel, pixel_range[2])
+        _validate_pixel_range(pixel_range)
+        # Int(): tuples deserialized from JSON metadata arrive as floats
+        p1 = max(1, Int(pixel_range[1]))
+        p2 = min(n_pixel, Int(pixel_range[2]))
         spec_range = p1:p2
     else
         spec_range = 1:n_pixel
@@ -84,7 +86,7 @@ components that capture the most variance across the map, along with their
 spatial loading maps.
 
 # Arguments
-- `m::PLMap`: Input PL map with `spectra` field of shape `(nx, ny, n_pixel)`.
+- `m::PLMap`: Input PL map with channel-major `spectra` of shape `(n_pixel, nx, ny)`.
 - `n_components::Int=3`: Number of principal components to retain.
 - `pixel_range`: Optional `(start, stop)` tuple to restrict the spectral
   range before decomposition.
@@ -141,7 +143,7 @@ end
 
 """
     nmf_map(m::PLMap; n_components::Int=3, pixel_range=nothing,
-            max_iter::Int=200, tol::Float64=1e-4) -> DecompositionResult
+            max_iter::Int=200, tol::Float64=1e-4, rng=nothing) -> DecompositionResult
 
 Non-negative Matrix Factorization of PLMap spectra.
 
@@ -153,13 +155,16 @@ can represent distinct emitters or spectral species.
 Uses Lee & Seung multiplicative update rules with Frobenius norm objective.
 
 # Arguments
-- `m::PLMap`: Input PL map with `spectra` field of shape `(nx, ny, n_pixel)`.
+- `m::PLMap`: Input PL map with channel-major `spectra` of shape `(n_pixel, nx, ny)`.
 - `n_components::Int=3`: Number of NMF components.
 - `pixel_range`: Optional `(start, stop)` tuple to restrict the spectral
   range before decomposition.
 - `max_iter::Int=200`: Maximum number of multiplicative update iterations.
 - `tol::Float64=1e-4`: Convergence tolerance on the relative change in
   reconstruction error between iterations.
+- `rng`: Optional `AbstractRNG` for the random `W`/`H` initialization. NMF is
+  non-convex, so pass a seeded RNG (e.g. `MersenneTwister(42)`) for
+  reproducible decompositions; `nothing` (default) uses the global RNG.
 
 # Returns
 A [`DecompositionResult`](@ref) with:
@@ -176,7 +181,7 @@ result = nmf_map(m; n_components=3, max_iter=500)
 ```
 """
 function nmf_map(m::PLMap; n_components::Int=3, pixel_range=nothing,
-                 max_iter::Int=200, tol::Float64=1e-4)
+                 max_iter::Int=200, tol::Float64=1e-4, rng=nothing)
     data, _, nx, ny = _prepare_map_matrix(m; pixel_range=pixel_range)
     n_spatial, n_spectral = size(data)
 
@@ -190,8 +195,10 @@ function nmf_map(m::PLMap; n_components::Int=3, pixel_range=nothing,
 
     # Initialize W and H with positive random values
     eps_val = 1e-10
-    W = abs.(randn(n_spatial, n_components)) .+ eps_val
-    H = abs.(randn(n_components, n_spectral)) .+ eps_val
+    W = isnothing(rng) ? abs.(randn(n_spatial, n_components)) .+ eps_val :
+                         abs.(randn(rng, n_spatial, n_components)) .+ eps_val
+    H = isnothing(rng) ? abs.(randn(n_components, n_spectral)) .+ eps_val :
+                         abs.(randn(rng, n_components, n_spectral)) .+ eps_val
 
     # Pre-allocate workspace matrices for in-place operations
     WtV  = similar(H)                                            # (n_components, n_spectral)

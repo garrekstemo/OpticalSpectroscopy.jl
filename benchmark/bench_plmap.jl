@@ -16,7 +16,8 @@ function make_synthetic_plmap(; nx=51, ny=51, n_pixel=512, seed=42)
     y = collect(range(-50.0, 50.0, length=ny))
     pixel = collect(range(900.0, 1100.0, length=n_pixel))
 
-    spectra = Array{Float64,3}(undef, nx, ny, n_pixel)
+    # Channel-major cube, matching the PLMap storage contract
+    spectra = Array{Float64,3}(undef, n_pixel, nx, ny)
 
     # Gaussian peak parameters with smooth spatial variation
     for iy in eachindex(y), ix in eachindex(x)
@@ -26,7 +27,7 @@ function make_synthetic_plmap(; nx=51, ny=51, n_pixel=512, seed=42)
         amplitude = 500.0 + 200.0 * exp(-((x[ix])^2 + (y[iy])^2) / (40.0^2))
 
         for ip in eachindex(pixel)
-            spectra[ix, iy, ip] = amplitude * exp(-0.5 * ((pixel[ip] - center) / sigma)^2)
+            spectra[ip, ix, iy] = amplitude * exp(-0.5 * ((pixel[ip] - center) / sigma)^2)
         end
     end
 
@@ -49,14 +50,14 @@ function make_synthetic_plmap(; nx=51, ny=51, n_pixel=512, seed=42)
         for _ in 1:n_spikes
             ch = rand(rng, 1:n_pixel)
             spike_height = 2000.0 + 3000.0 * rand(rng)
-            spectra[ix, iy, ch] += spike_height
+            spectra[ch, ix, iy] += spike_height
         end
     end
 
-    # Compute integrated intensity
-    intensity = dropdims(sum(spectra; dims=3); dims=3)
+    # Compute integrated intensity (sum over the channel axis)
+    intensity = dropdims(sum(spectra; dims=1); dims=1)
 
-    metadata = Dict{String,Any}("source_file" => "synthetic_benchmark")
+    metadata = Dict{Symbol,Any}(:source_file => "synthetic_benchmark")
 
     return PLMap(intensity, spectra, x, y, pixel, metadata)
 end

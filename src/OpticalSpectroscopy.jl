@@ -21,7 +21,7 @@ using SavitzkyGolay: savitzky_golay as _sg_filter
 using Interpolations
 using JSON
 import PhysicalConstants.CODATA2022: h, c_0, ħ
-using SpecialFunctions: gamma
+using SpecialFunctions: gamma, erfc, erfcx
 
 # Source files (order matters: tokens (pure vocab) before types; types before
 # functions that use them)

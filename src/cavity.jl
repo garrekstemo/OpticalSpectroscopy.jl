@@ -651,9 +651,7 @@ function fit_cavity_spectrum(nu::AbstractVector, T_data::AbstractVector;
 
     # Compute R^2
     y_fit = model(c, nu)
-    ss_res = sum((T_data .- y_fit).^2)
-    ss_tot = sum((T_data .- mean(T_data)).^2)
-    rsq = 1 - ss_res / ss_tot
+    rsq = _rsquared(T_data, y_fit)
 
     # Auto-extract polariton peaks from fitted curve
     polariton_peaks = _find_local_maxima(nu, y_fit; min_prominence=0.005 * maximum(y_fit))
@@ -769,9 +767,7 @@ function fit_dispersion(lp_angles::AbstractVector, lp_positions::AbstractVector,
 
     # Compute R^2
     y_pred = model(c, x)
-    ss_res = sum((y_data .- y_pred).^2)
-    ss_tot = sum((y_data .- mean(y_data)).^2)
-    rsq = 1 - ss_res / ss_tot
+    rsq = _rsquared(y_data, y_pred)
 
     # Hopfield coefficients at zero detuning (E_cav = E_vib).
     # For multi-mode, computed at E_cav = mean of the molecular modes.
@@ -836,7 +832,8 @@ function fit_dispersion(results::Vector{CavityFitResult};
     end
 
     if length(lp) < 3
-        error("Need at least 3 valid LP/UP pairs for dispersion fitting, got $(length(lp))")
+        throw(ArgumentError(
+            "Need at least 3 valid LP/UP pairs for dispersion fitting, got $(length(lp))"))
     end
 
     return fit_dispersion(valid_angles, lp, up; molecular_modes=molecular_modes)

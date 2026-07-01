@@ -8,66 +8,49 @@ Unified multi-peak fitting that works on any spectrum type.
 # Helpers
 # =============================================================================
 
-function _model_name(model::Function)
-    name = string(model)
-    if occursin("lorentzian", lowercase(name))
-        return "lorentzian"
-    elseif occursin("gaussian", lowercase(name))
-        return "gaussian"
-    elseif occursin("pseudo_voigt", lowercase(name))
-        return "pseudo_voigt"
-    elseif occursin("voigt", lowercase(name))
-        return "voigt"
-    elseif occursin("fano", lowercase(name))
-        return "fano"
-    else
-        return name
-    end
-end
+# Single source of truth for the known lineshape models. Per model:
+#   name            display/storage name
+#   nparams         parameters per peak
+#   params          parameter names, fit-vector order
+#   width_scale     width guess = width_scale · detected FWHP
+#     (lorentzian: Γ is the FWHM; gaussian/voigt: σ is the std dev;
+#      pseudo_voigt: σ is the HWHM of both components; fano: Γ ~ width)
+#   fourth_p0       initial guess for the 4th parameter, given the detected
+#                   FWHP (`nothing` for 3-parameter models)
+const _MODEL_INFO = IdDict{Function,NamedTuple}(
+    lorentzian   => (name="lorentzian",   nparams=3, params=[:amplitude, :center, :fwhm],
+                     width_scale=1.0,             fourth_p0=nothing),
+    gaussian     => (name="gaussian",     nparams=3, params=[:amplitude, :center, :sigma],
+                     width_scale=1 / FWHM_FACTOR, fourth_p0=nothing),
+    pseudo_voigt => (name="pseudo_voigt", nparams=4, params=[:amplitude, :center, :sigma, :mixing],
+                     width_scale=0.5,             fourth_p0=fwhp -> 0.5),
+    voigt        => (name="voigt",        nparams=4, params=[:amplitude, :center, :sigma, :gamma],
+                     width_scale=1 / FWHM_FACTOR, fourth_p0=fwhp -> fwhp / 4),
+    fano         => (name="fano",         nparams=4, params=[:amplitude, :center, :width, :q],
+                     width_scale=1.0,             fourth_p0=fwhp -> 1.0),
+)
 
-_is_known_model(f::Function) = f in (lorentzian, gaussian, pseudo_voigt, voigt, fano)
+# Model name for storage/reporting; unknown models keep their own name (no
+# string matching — a user function called `my_gaussian` is not "gaussian").
+_model_name(model::Function) =
+    haskey(_MODEL_INFO, model) ? _MODEL_INFO[model].name : string(model)
+
+_is_known_model(f::Function) = haskey(_MODEL_INFO, f)
 
 function _n_peak_params(model::Function)
-    if model in (lorentzian, gaussian)
-        return 3
-    elseif model in (pseudo_voigt, voigt, fano)
-        return 4
-    else
-        error("Unknown model. Provide n_peak_params manually.")
-    end
+    haskey(_MODEL_INFO, model) ||
+        throw(ArgumentError("Unknown model. Provide n_peak_params manually."))
+    return _MODEL_INFO[model].nparams
 end
 
 function _peak_param_names(model::Function)
-    if model === lorentzian
-        return [:amplitude, :center, :fwhm]
-    elseif model === gaussian
-        return [:amplitude, :center, :sigma]
-    elseif model === pseudo_voigt
-        return [:amplitude, :center, :sigma, :mixing]
-    elseif model === voigt
-        return [:amplitude, :center, :sigma, :gamma]
-    elseif model === fano
-        return [:amplitude, :center, :width, :q]
-    else
-        error("Unknown model. Provide param_names manually.")
-    end
+    haskey(_MODEL_INFO, model) ||
+        throw(ArgumentError("Unknown model. Provide param_names manually."))
+    return _MODEL_INFO[model].params
 end
 
-function _width_guess(fwhp::Real, model::Function)
-    if model === lorentzian
-        return fwhp                            # Γ is the FWHM
-    elseif model === gaussian
-        return fwhp / (2 * sqrt(2 * log(2)))   # σ is the std dev
-    elseif model === pseudo_voigt
-        return fwhp / 2                        # σ is the HWHM of both components
-    elseif model === voigt
-        return fwhp / (2 * sqrt(2 * log(2)))   # σ is the Gaussian std dev
-    elseif model === fano
-        return fwhp
-    else
-        return fwhp
-    end
-end
+_width_guess(fwhp::Real, model::Function) =
+    haskey(_MODEL_INFO, model) ? _MODEL_INFO[model].width_scale * fwhp : fwhp
 
 function _peaks_to_p0(detected::Vector{PeakInfo}, x, y, model::Function; baseline_order::Int=1)
     npp = _n_peak_params(model)
@@ -84,13 +67,8 @@ function _peaks_to_p0(detected::Vector{PeakInfo}, x, y, model::Function; baselin
             p0[offset + 3] = _width_guess(pk.width, model)
         end
         if npp >= 4
-            if model === pseudo_voigt
-                p0[offset + 4] = 0.5
-            elseif model === voigt
-                p0[offset + 4] = pk.width / 4  # γ: small Lorentzian width relative to peak
-            elseif model === fano
-                p0[offset + 4] = 1.0  # q = 1 (moderate asymmetry, |q| -> Inf is Lorentzian)
-            end
+            fourth = _MODEL_INFO[model].fourth_p0
+            isnothing(fourth) || (p0[offset + 4] = fourth(pk.width))
         end
     end
 
@@ -115,24 +93,30 @@ function _baseline_norm(x::AbstractVector)
     return x_mid, x_range
 end
 
+# `x_cache`: the fit grid, if known. Its normalized basis is precomputed once
+# and reused whenever the model is evaluated on that same array (the objective
+# calls it thousands of times); other grids fall back to computing x_norm.
 function _build_multipeak_model(peak_fn::Function, n_peaks::Int, baseline_order::Int, npp::Int,
-                                x_mid::Real, x_range::Real)
+                                x_mid::Real, x_range::Real;
+                                x_cache::Union{AbstractVector,Nothing}=nothing)
+    cached_norm = isnothing(x_cache) ? nothing : (x_cache .- x_mid) ./ x_range
     function composite_model(p, x)
         y = similar(p, length(x))
         fill!(y, zero(eltype(p)))
 
         for i in 1:n_peaks
             offset = (i - 1) * npp
-            peak_params = p[offset+1:offset+npp]
-            y = y .+ peak_fn(peak_params, x)
+            peak_params = @view p[offset+1:offset+npp]
+            y .+= peak_fn(peak_params, x)
         end
 
         baseline_start = n_peaks * npp + 1
-        x_norm = (x .- x_mid) ./ x_range
+        x_norm = (cached_norm !== nothing && x === x_cache) ? cached_norm :
+                 (x .- x_mid) ./ x_range
 
         for j in 0:baseline_order
             c = p[baseline_start + j]
-            y = y .+ c .* x_norm .^ j
+            y .+= c .* x_norm .^ j
         end
 
         return y
@@ -191,11 +175,18 @@ function fit_peaks(x::AbstractVector, y::AbstractVector;
                 throw(ArgumentError("p0 length $(length(p0)) inconsistent with $npp params/peak + $n_baseline baseline params"))
             end
             n_peaks = round(Int, n_peaks_inferred)
+        else
+            expected = n_peaks * npp + n_baseline
+            length(p0) == expected || throw(ArgumentError(
+                "p0 has $(length(p0)) entries but n_peaks=$n_peaks with $npp params/peak " *
+                "+ $n_baseline baseline params requires $expected"))
         end
         p0_use = collect(Float64, p0)
     else
+        # Defensive copy: the trim path below sorts `detected` in place, and
+        # the caller's `peaks` vector must not be reordered behind their back.
         detected = if !isnothing(peaks)
-            peaks
+            copy(peaks)
         else
             find_peaks(x_f, y_f; min_prominence=min_prominence)
         end
@@ -219,7 +210,8 @@ function fit_peaks(x::AbstractVector, y::AbstractVector;
     end
 
     x_mid, x_range = _baseline_norm(x_f)
-    composite = _build_multipeak_model(model, n_peaks, baseline_order, npp, x_mid, x_range)
+    composite = _build_multipeak_model(model, n_peaks, baseline_order, npp, x_mid, x_range;
+                                       x_cache=x_f)
     prob = NonlinearCurveFitProblem(composite, p0_use, x_f, y_f)
     sol = solve(prob)
 
@@ -227,14 +219,32 @@ function fit_peaks(x::AbstractVector, y::AbstractVector;
     p_err = stderror(sol)
     ci_vals = confint(sol)
 
-    # Width parameters (index 3 per peak) must be non-negative.
-    # Models are symmetric in width, so abs() gives the identical curve.
+    # Width parameters (index 3 per peak) must be non-negative. For symmetric
+    # lineshapes abs() gives the identical curve; fano is NOT symmetric in Γ —
+    # flipping Γ mirrors the asymmetry, which is equivalent to q → −q, so q
+    # (param 4) is negated along with it. Voigt is symmetric in γ (param 4)
+    # separately, so a negative γ is also flipped.
+    flip_q = model === fano
+    flip_p4 = model === voigt
     for i in 1:n_peaks
-        wi = (i - 1) * npp + 3
+        base = (i - 1) * npp
+        wi = base + 3
         if p[wi] < 0
             p[wi] = -p[wi]
             lo, hi = ci_vals[wi]
             ci_vals[wi] = (-hi, -lo)
+            if flip_q
+                qi = base + 4
+                p[qi] = -p[qi]
+                lo, hi = ci_vals[qi]
+                ci_vals[qi] = (-hi, -lo)
+            end
+        end
+        if flip_p4 && p[base + 4] < 0
+            gi = base + 4
+            p[gi] = -p[gi]
+            lo, hi = ci_vals[gi]
+            ci_vals[gi] = (-hi, -lo)
         end
     end
 
@@ -285,7 +295,8 @@ function fit_peaks(x::AbstractVector, y::AbstractVector, region::Tuple{Real, Rea
     x_r = x[mask]
     y_r = y[mask]
 
-    length(x_r) < 10 && error("Region $(region) contains only $(length(x_r)) points. Need at least 10.")
+    length(x_r) < 10 && throw(ArgumentError(
+        "Region $(region) contains only $(length(x_r)) points. Need at least 10."))
 
     return fit_peaks(x_r, y_r; kwargs...)
 end
@@ -301,7 +312,8 @@ function fit_peaks(spec::AbstractSpectroscopyData, region::Tuple{Real, Real}; kw
     y = y_full[mask]
 
     if length(x) < 10
-        error("Region $(region) contains only $(length(x)) points. Need at least 10.")
+        throw(ArgumentError(
+            "Region $(region) contains only $(length(x)) points. Need at least 10."))
     end
 
     sid = get(kwargs, :sample_id, "")
@@ -374,6 +386,7 @@ function predict_baseline(r::MultiPeakFitResult, x::AbstractVector)
                           r.baseline_order, r._x_mid, r._x_range)
 end
 
+# data − fit, the package-wide residual convention
 function residuals(r::MultiPeakFitResult)
     return r._y .- predict(r)
 end

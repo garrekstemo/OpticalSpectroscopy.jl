@@ -18,7 +18,8 @@ const AXIS_QUANTITIES = Set{Symbol}([
 const SIGNAL_QUANTITIES = Set{Symbol}([
     :absorbance, :transmittance, :reflectance, :single_beam,
     :interferogram, :delta_absorbance, :delta_transmittance,
-    :intensity, :kubelka_munk])
+    :intensity, :kubelka_munk,
+    :normalized_intensity, :derivative, :ratio])
 
 const UNITS = Set{Symbol}([
     :nm, :um, :angstrom, :per_cm, :fs, :ps, :ns, :degree, :eV, :meV,
@@ -42,6 +43,9 @@ const _QUANTITY_DISPLAY = Dict{Symbol,String}(
     :delta_transmittance => "−ΔT/T",
     :intensity        => "Intensity",
     :kubelka_munk     => "F(R)",
+    :normalized_intensity => "Normalized intensity",
+    :derivative       => "Derivative",
+    :ratio            => "Ratio",
 )
 
 const _UNIT_DISPLAY = Dict{Symbol,String}(
@@ -115,6 +119,24 @@ to `:ps`.
 """
 _time_label(metadata::AbstractDict, unit_key::Symbol) =
     axis_label(:time, Symbol(get(metadata, unit_key, :ps)))
+
+# Token WRITE side: the one place that restamps signal tokens after a
+# y-changing operation. Deleting any literal :ylabel keeps the label derived.
+
+"""
+    _retag_signal!(md::AbstractDict, quantity::Symbol, unit::Symbol) -> md
+
+Restamp the signal tokens on a metadata dict after an operation that changes
+the y-quantity (conversion, normalization, derivative, ratio, …): sets
+`:yquantity`/`:yunit` and deletes any literal `:ylabel` so the display label
+stays derived from the tokens.
+"""
+function _retag_signal!(md::AbstractDict, quantity::Symbol, unit::Symbol)
+    delete!(md, :ylabel)
+    md[:yquantity] = quantity
+    md[:yunit] = unit
+    return md
+end
 
 # Validation (§8). Warns, never throws — out-of-vocabulary values are allowed.
 

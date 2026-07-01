@@ -110,7 +110,8 @@ function find_peaks(x::AbstractVector, y::AbstractVector;
     pks = peakproms!(pks; min=abs_min_prom)
     isempty(pks.indices) && return PeakInfo[]
 
-    dx = mean(diff(x))
+    # abs: widths are positive index counts even on a descending x-axis
+    dx = abs(mean(diff(x)))
 
     min_width_idx = min_width / dx
     max_width_idx = max_width == Inf ? Inf : max_width / dx

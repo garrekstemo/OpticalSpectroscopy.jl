@@ -137,8 +137,8 @@ Extract the CCD spectrum at grid index `(ix, iy)`.
 Returns `(pixel=..., signal=..., x=..., y=...)`.
 """
 function extract_spectrum(m::PLMap, ix::Int, iy::Int)
-    1 <= ix <= length(m.x) || error("ix=$ix out of range 1:$(length(m.x))")
-    1 <= iy <= length(m.y) || error("iy=$iy out of range 1:$(length(m.y))")
+    1 <= ix <= length(m.x) || throw(ArgumentError("ix=$ix out of range 1:$(length(m.x))"))
+    1 <= iy <= length(m.y) || throw(ArgumentError("iy=$iy out of range 1:$(length(m.y))"))
     return (pixel=m.pixel, signal=collect(pixel_view(m, ix, iy)),
             x=m.x[ix], y=m.y[iy])
 end
@@ -176,7 +176,9 @@ using the same `pixel_range` as the original load (if any).
   reference points. These should be off-flake positions with no PL signal.
 - `margin`: Number of grid points from each edge used for auto-detection when
   `positions` is not given. Auto mode averages the corners of the bottom half
-  of the map (avoids top-row artifacts). Default: 5.
+  of the map (avoids top-row artifacts). Default: 5. Must be ≥ 1; on maps
+  smaller than the margin it is clamped so every corner point is counted
+  exactly once (no bounds errors, no double-weighted overlap).
 
 # Example
 ```julia
@@ -205,18 +207,24 @@ function subtract_background(m::PLMap; positions=nothing, margin::Int=5)
         end
         bg_spectra ./= length(positions)
     else
-        # Auto: average corners from the bottom half of the map
+        # Auto: average corners from the bottom half of the map. Clamp the
+        # margin so the two corner column ranges never overlap (double-weight)
+        # and never run out of bounds on small maps.
+        margin >= 1 || throw(ArgumentError("margin must be >= 1, got $margin"))
+        mx = min(margin, nx)
+        my = min(margin, ny)
+        ix_list = nx <= 2 * mx ? collect(1:nx) : [collect(1:mx); collect((nx-mx+1):nx)]
         bg_spectra = zeros(length(m.pixel))
         bg_positions = Tuple{Float64,Float64}[]
-        for ix in [1:margin; (nx-margin+1):nx]
-            for iy in 1:margin
+        for ix in ix_list
+            for iy in 1:my
                 bg_spectra .+= pixel_view(m, ix, iy)
                 push!(bg_positions, (m.x[ix], m.y[iy]))
             end
         end
         bg_spectra ./= length(bg_positions)
         @info "Auto background: averaged $(length(bg_positions)) spectra from bottom corners " *
-              "(ix=1:$margin and $(nx-margin+1):$nx, iy=1:$margin)"
+              "(ix ∈ $(ix_list[1]):$(ix_list[end]), iy=1:$my)"
     end
 
     # Subtract background spectrum from every grid point
@@ -233,7 +241,7 @@ function subtract_background(m::PLMap; positions=nothing, margin::Int=5)
 
     new_metadata = copy(m.metadata)
     new_metadata[:background_positions] = bg_positions
-    return PLMap(intensity, corrected, m.x, m.y, m.pixel, new_metadata)
+    return PLMap(intensity, corrected, copy(m.x), copy(m.y), copy(m.pixel), new_metadata)
 end
 
 # =============================================================================
@@ -254,9 +262,7 @@ function normalize_intensity(m::PLMap)
     end
     # Normalized intensity is no longer in counts: retag the signal unit so the
     # derived z-label stays honest (`Intensity (arb. units)`).
-    md = copy(m.metadata)
-    md[:yquantity] = :intensity
-    md[:yunit] = :arb
+    md = _retag_signal!(copy(m.metadata), :intensity, :arb)
     return PLMap(norm_intensity, m.spectra, m.x, m.y, m.pixel, md)
 end
 
@@ -279,12 +285,20 @@ With `pixel_range`, sums `m.spectra[p1:p2, :, :]` over the given pixel window.
 function integrated_intensity(m::PLMap; pixel_range::Union{Tuple{Int,Int},Nothing}=nothing)
     pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, :pixel_range, nothing)
     if !isnothing(pr)
-        p1 = max(1, pr[1])
-        p2 = min(length(m.pixel), pr[2])
+        _validate_pixel_range(pr)
+        p1 = max(1, Int(pr[1]))
+        p2 = min(length(m.pixel), Int(pr[2]))
         return dropdims(sum((@view m.spectra[p1:p2, :, :]); dims=1); dims=1)
     else
         return m.intensity
     end
+end
+
+# Reversed ranges would silently sum over nothing (empty slice → zeros).
+function _validate_pixel_range(pr)
+    pr[1] <= pr[2] || throw(ArgumentError(
+        "pixel_range must have start <= stop, got $(pr)"))
+    return nothing
 end
 
 # =============================================================================
@@ -421,8 +435,9 @@ function peak_centers(m::PLMap; pixel_range::Union{Tuple{Int,Int},Nothing}=nothi
     pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, :pixel_range, nothing)
 
     if !isnothing(pr)
-        p1 = max(1, pr[1])
-        p2 = min(length(m.pixel), pr[2])
+        _validate_pixel_range(pr)
+        p1 = max(1, Int(pr[1]))
+        p2 = min(length(m.pixel), Int(pr[2]))
         pixels = m.pixel[p1:p2]
         spectra_slice = @view m.spectra[p1:p2, :, :]
     else
@@ -444,7 +459,10 @@ function peak_centers(m::PLMap; pixel_range::Union{Tuple{Int,Int},Nothing}=nothi
         else
             sig = @view spectra_slice[:, ix, iy]
             total = sum(sig)
-            centers[ix, iy] = sum(pixels[k] * sig[k] for k in eachindex(sig)) / total
+            # A nonpositive total (background-subtracted spectra) would give a
+            # ±Inf centroid and poison heatmap color limits; mask it instead.
+            centers[ix, iy] = total > 0 ?
+                sum(pixels[k] * sig[k] for k in eachindex(sig)) / total : NaN
         end
     end
     return centers
@@ -468,12 +486,12 @@ function _peak_fwhm(pk::PeakFitResult)
         return 2 * abs(pk[:sigma].value)
     elseif haskey(pk, :sigma) && haskey(pk, :gamma)
         # Voigt FWHM approximation (Thompson et al., 1987)
-        fwhm_g = abs(pk[:sigma].value) * 2 * sqrt(2 * log(2))
+        fwhm_g = abs(pk[:sigma].value) * FWHM_FACTOR
         fwhm_l = 2 * abs(pk[:gamma].value)
         return 0.5346 * fwhm_l + sqrt(0.2166 * fwhm_l^2 + fwhm_g^2)
     elseif haskey(pk, :sigma)
         # gaussian (and unknown models exposing :sigma): treat as std dev
-        return abs(pk[:sigma].value) * 2 * sqrt(2 * log(2))
+        return abs(pk[:sigma].value) * FWHM_FACTOR
     else
         return NaN
     end
@@ -564,16 +582,20 @@ function fit_map(m::PLMap;
 
     n_to_fit = length(pixels_to_fit)
 
-    # Helper to extract and optionally crop a spectrum
+    # Hoist the spectral crop out of the per-pixel loop: the pixel axis is the
+    # same for every spatial point, so the region resolves to one index range
+    # (or index list on an unsorted axis) computed once.
+    crop_idx = if isnothing(region)
+        eachindex(m.pixel)
+    elseif issorted(m.pixel)
+        searchsortedfirst(m.pixel, region[1]):searchsortedlast(m.pixel, region[2])
+    else
+        findall(p -> region[1] <= p <= region[2], m.pixel)
+    end
+    x_crop = m.pixel[crop_idx]
+
     function _extract_and_crop(ix, iy)
-        spec = extract_spectrum(m, ix, iy)
-        x, y = spec.pixel, spec.signal
-        if !isnothing(region)
-            rmask = region[1] .<= x .<= region[2]
-            x = x[rmask]
-            y = y[rmask]
-        end
-        return x, y
+        return x_crop, m.spectra[crop_idx, ix, iy]
     end
 
     # Fit reference pixel to seed initial parameters.

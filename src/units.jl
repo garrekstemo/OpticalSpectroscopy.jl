@@ -14,6 +14,17 @@ const ħ_eVfs = Unitful.ustrip(Unitful.uconvert(u"eV*fs", ħ))
 const ħ_meVps = Unitful.ustrip(Unitful.uconvert(u"meV*ps", ħ))
 
 # ============================================================================
+# Shared numerical constants
+# ============================================================================
+
+# Gaussian FWHM = FWHM_FACTOR · σ
+const FWHM_FACTOR = 2 * sqrt(2 * log(2))  # ≈ 2.355
+
+# Robust scale from the median absolute deviation: σ ≈ MAD_TO_SIGMA · MAD
+# (1/Φ⁻¹(0.75), the normal-consistency factor)
+const MAD_TO_SIGMA = 1.4826022185056018
+
+# ============================================================================
 # Wavenumber <-> Wavelength conversions
 # ============================================================================
 
