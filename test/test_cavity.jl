@@ -624,7 +624,7 @@ end
 
         # Too few valid LP/UP pairs should error
         few = results[1:2]
-        @test_throws ErrorException fit_dispersion(few;
+        @test_throws ArgumentError fit_dispersion(few;
             molecular_modes=E_vib, angles=angles[1:2])
     end
 

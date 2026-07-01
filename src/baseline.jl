@@ -5,7 +5,7 @@ Provides:
 - `arpls_baseline` — Asymmetrically Reweighted PLS (Baek et al., 2015)
 - `snip_baseline` — Statistics-sensitive Non-linear Iterative Peak-clipping (Ryan et al., 1988)
 - `rubberband_baseline` — Lower convex hull (rubber band) baseline
-- `imodpoly_baseline` — Improved Modified Polynomial (Lieber & Mahadevan-Jansen, 2003)
+- `imodpoly_baseline` — Improved Modified Polynomial, I-ModPoly (Zhao et al., 2007)
 - `rolling_ball_baseline` — Morphological erosion-dilation envelope
 """
 
@@ -105,7 +105,16 @@ end
 """
     snip_baseline(y; iterations=40, decreasing=true) -> Vector
 
-SNIP baseline correction using iterative peak clipping.
+SNIP baseline correction using iterative peak clipping (Ryan et al., 1988).
+
+Data are compressed with the log-log-square-root (LLS) operator before
+clipping (Morháč et al., Nucl. Instrum. Methods Phys. Res. A 401, 113 (1997),
+[doi:10.1016/S0168-9002(97)01023-1](https://doi.org/10.1016/S0168-9002(97)01023-1)).
+The LLS transform requires non-negative input, so data with a negative
+baseline (e.g. ΔA spectra) are shifted by their minimum first and shifted back
+afterwards — negative baselines are recovered, not floored at zero. Each
+clipping pass reads the previous pass's values through a separate buffer, so
+the result is independent of scan direction.
 """
 function snip_baseline(y::AbstractVector{<:Real};
                        iterations::Int=40,
@@ -115,20 +124,32 @@ function snip_baseline(y::AbstractVector{<:Real};
     iterations > 0 || throw(ArgumentError("iterations must be positive"))
     n ≥ 3 || throw(ArgumentError("Need at least 3 points, got $n"))
 
-    z = convert(Vector{Float64}, copy(y))
+    z = convert(Vector{Float64}, collect(y))
+
+    # Shift negative-baseline data to non-negative before the LLS transform
+    # (which floors at 0), then shift back at the end.
+    ymin = minimum(z)
+    shift = ymin < 0 ? ymin : 0.0
+    shift == 0.0 || (z .-= shift)
 
     _lls_transform!(z)
 
     window_sizes = decreasing ? (iterations:-1:1) : (1:iterations)
 
+    # Read from the previous pass via z_prev: clipping in place would let
+    # z[i−k] be the already-clipped value while z[i+k] is not, making the
+    # result depend on the scan direction.
+    z_prev = similar(z)
     for k in window_sizes
+        copyto!(z_prev, z)
         for i in (k+1):(n-k)
-            neighbor_avg = (z[i-k] + z[i+k]) / 2
-            z[i] = min(z[i], neighbor_avg)
+            neighbor_avg = (z_prev[i-k] + z_prev[i+k]) / 2
+            z[i] = min(z_prev[i], neighbor_avg)
         end
     end
 
     _lls_inverse!(z)
+    shift == 0.0 || (z .+= shift)
 
     return z
 end
@@ -205,11 +226,16 @@ end
 """
     imodpoly_baseline(x, y; poly_order=4, maxiter=100, tol=1e-3) -> Vector
 
-Improved Modified Polynomial baseline (Lieber & Mahadevan-Jansen, 2003).
+Improved Modified Polynomial (I-ModPoly) baseline of Zhao et al.,
+Appl. Spectrosc. 61, 1225 (2007),
+[doi:10.1366/000370207782597003](https://doi.org/10.1366/000370207782597003).
 
-Iteratively fits a polynomial to the spectrum, removing points that are
-above the fit by more than one standard deviation of the residuals.
-Converges when the fit changes less than `tol` between iterations.
+Iteratively fits a polynomial to a working spectrum. Each iteration computes
+`DEV`, the standard deviation of the residuals about the current fit, and
+reconstructs the working spectrum by clipping points above `fit + DEV` down to
+`fit + DEV` (peak removal that accounts for the noise level, unlike the plain
+ModPoly of Lieber & Mahadevan-Jansen 2003). Converges when the relative change
+`|DEVᵢ − DEVᵢ₋₁| / DEVᵢ < tol`.
 """
 function imodpoly_baseline(x::AbstractVector, y::AbstractVector;
                            poly_order::Int=4,
@@ -231,31 +257,37 @@ function imodpoly_baseline(x::AbstractVector, y::AbstractVector;
         zeros(n)
     end
 
+    # The abscissa never changes across iterations: build the Vandermonde
+    # matrix and its QR factorization once; each iteration is then a cheap
+    # Q'y + triangular solve.
+    V = zeros(n, poly_order + 1)
+    for j in 0:poly_order, i in 1:n
+        V[i, j+1] = xn[i]^j
+    end
+    F = qr(V)
+
     y_work = copy(yv)
     baseline = similar(yv)
+    dev_prev = NaN
 
     for iter in 1:maxiter
-        coeffs = _polyfit(xn, y_work, poly_order)
-        baseline_new = _polyeval(coeffs, xn)
+        coeffs = F \ y_work
+        mul!(baseline, V, coeffs)
 
-        if iter > 1
-            δ = norm(baseline_new - baseline) / (norm(baseline_new) + eps())
-            if δ < tol
-                baseline .= baseline_new
-                break
-            end
-        end
+        # DEV: standard deviation of the residuals about the current fit
+        dev = std(y_work .- baseline; corrected=false)
 
-        baseline .= baseline_new
-
-        residuals_neg = filter(<(0), yv .- baseline)
-        dev = isempty(residuals_neg) ? 0.0 : std(residuals_neg; corrected=false)
-        if dev < eps()
+        if dev < eps() || (iter > 1 && abs(dev - dev_prev) / dev < tol)
             break
         end
+        dev_prev = dev
 
+        # Peak removal / spectrum reconstruction: clip to fit + DEV
         for i in eachindex(y_work)
-            y_work[i] = yv[i] > baseline[i] + dev ? baseline[i] : yv[i]
+            ceiling = baseline[i] + dev
+            if y_work[i] > ceiling
+                y_work[i] = ceiling
+            end
         end
     end
 

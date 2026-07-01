@@ -27,12 +27,27 @@ Optional (have defaults):
 This enables uniform handling in data viewers and plotting functions
 while maintaining semantic field names in each concrete type.
 
+# zdata orientation contract
+
+The orientation of `zdata` differs between the 2D types and is part of the
+interface contract:
+
+- [`TimeResolvedMatrix`](@ref): `zdata` is `(n_time, n_wavelength)` =
+  `(length(ydata), length(xdata))` — plot with `heatmap(xdata, ydata, zdata')`.
+- [`PLMap`](@ref): `zdata` is `(nx, ny)` = `(length(xdata), length(ydata))` —
+  plot with `heatmap(xdata, ydata, zdata)` (no transpose).
+
+Check `size(zdata(d))` against `(length(xdata(d)), length(ydata(d)))` when
+writing generic 2D consumers.
+
 # Example
 ```julia
-# Works for any spectroscopy data type
+# 1D data works uniformly; for 2D data mind the orientation contract above
 function plot_data(data::AbstractSpectroscopyData)
-    if is_matrix(data)
+    if data isa TimeResolvedMatrix
         heatmap(xdata(data), ydata(data), zdata(data)')
+    elseif data isa PLMap
+        heatmap(xdata(data), ydata(data), zdata(data))
     else
         lines(xdata(data), ydata(data))
     end
@@ -192,9 +207,10 @@ signal(t::KineticTrace) = t.signal
 function Base.show(io::IO, t::KineticTrace)
     n = length(t.time)
     tu = (u = Symbol(get(t.metadata, :xunit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
-    t_range = "$(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu"
+    t_range = isempty(t.time) ? "" :
+        ", $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu"
     src = source_file(t)
-    print(io, "KineticTrace: $n points, $t_range")
+    print(io, "KineticTrace: $n points$t_range")
     isempty(src) || print(io, " ($(src))")
 end
 
@@ -202,7 +218,8 @@ function Base.show(io::IO, ::MIME"text/plain", t::KineticTrace)
     tu = (u = Symbol(get(t.metadata, :xunit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     println(io, "KineticTrace")
     println(io, "  Time points: $(length(t.time))")
-    println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu")
+    isempty(t.time) ||
+        println(io, "  Time range:  $(round(minimum(t.time), digits=2)) to $(round(maximum(t.time), digits=2)) $tu")
     println(io, "  Wavelength:  $(isnan(t.wavelength) ? "unknown" : t.wavelength)")
     src = source_file(t)
     isempty(src) || println(io, "  File:        $src")
@@ -302,7 +319,8 @@ lineshape model (Gaussian, Lorentzian, pseudo-Voigt).
 
 # Fields
 - `peaks::Vector{TAPeak}` — Fitted peak parameters
-- `offset`, `rsquared`, `residuals` — Fit metadata
+- `offset`, `rsquared`, `residuals` — Fit metadata; `residuals` are
+  `data − fit` (package-wide convention)
 """
 struct TASpectrumFit
     peaks::Vector{TAPeak}
@@ -325,7 +343,8 @@ wavenumber(r::TASpectrumFit) = r._x
 
 function Base.getindex(r::TASpectrumFit, label::Symbol)
     idx = findfirst(p -> p.label == label, r.peaks)
-    isnothing(idx) && error("No peak with label :$label. Available: $(unique([p.label for p in r.peaks]))")
+    isnothing(idx) && throw(ArgumentError(
+        "No peak with label :$label. Available: $(unique([p.label for p in r.peaks]))"))
     return r.peaks[idx]
 end
 
@@ -385,14 +404,29 @@ end
 # =============================================================================
 
 """
-    ExpDecayFit
+    AbstractDecayFit
+
+Supertype of the exponential-decay fit results ([`ExpDecayFit`](@ref),
+[`MultiexpDecayFit`](@ref), [`StretchedDecayFit`](@ref)). Subtypes implement
+`_taus`/`_amplitudes` so consumers don't need `isa`-chains.
+"""
+abstract type AbstractDecayFit end
+
+# Per-component time constants / amplitudes, uniformly as vectors.
+_taus(f::AbstractDecayFit) = error("_taus not implemented for $(typeof(f))")
+_amplitudes(f::AbstractDecayFit) = error("_amplitudes not implemented for $(typeof(f))")
+
+"""
+    ExpDecayFit <: AbstractDecayFit
 
 Result of exponential decay fitting with instrument response function convolution.
 
 # Fields
 - `amplitude`, `tau`, `t0`, `sigma`, `offset`, `signal_type`, `residuals`, `rsquared`
+
+`residuals` follow the package-wide convention `data − fit`.
 """
-struct ExpDecayFit
+struct ExpDecayFit <: AbstractDecayFit
     amplitude::Float64
     tau::Float64
     t0::Float64
@@ -402,6 +436,9 @@ struct ExpDecayFit
     residuals::Vector{Float64}
     rsquared::Float64
 end
+
+_taus(f::ExpDecayFit) = [f.tau]
+_amplitudes(f::ExpDecayFit) = [f.amplitude]
 
 function Base.show(io::IO, fit::ExpDecayFit)
     signal_str = fit.signal_type == :esa ? "ESA" : "GSB"
@@ -429,7 +466,7 @@ end
 
 
 """
-    MultiexpDecayFit
+    MultiexpDecayFit <: AbstractDecayFit
 
 Result of multi-exponential decay fitting (n >= 1 components).
 
@@ -438,11 +475,13 @@ Result of multi-exponential decay fitting (n >= 1 components).
 - `amplitudes::Vector{Float64}`: Corresponding amplitudes
 - `t0`, `sigma`, `offset`, `signal_type`, `residuals`, `rsquared`
 
+`residuals` follow the package-wide convention `data − fit`.
+
 # Derived properties
 - `n_exp(fit)`: Number of exponential components
 - `weights(fit)`: Relative amplitude weights (normalized to 100%)
 """
-struct MultiexpDecayFit
+struct MultiexpDecayFit <: AbstractDecayFit
     taus::Vector{Float64}
     amplitudes::Vector{Float64}
     t0::Float64
@@ -452,6 +491,9 @@ struct MultiexpDecayFit
     residuals::Vector{Float64}
     rsquared::Float64
 end
+
+_taus(f::MultiexpDecayFit) = f.taus
+_amplitudes(f::MultiexpDecayFit) = f.amplitudes
 
 n_exp(fit::MultiexpDecayFit) = length(fit.taus)
 function weights(fit::MultiexpDecayFit)
@@ -494,7 +536,7 @@ end
 # =============================================================================
 
 """
-    StretchedDecayFit
+    StretchedDecayFit <: AbstractDecayFit
 
 Result of stretched-exponential (Kohlrausch–Williams–Watts) decay fitting:
 
@@ -507,12 +549,12 @@ Result of stretched-exponential (Kohlrausch–Williams–Watts) decay fitting:
 - `t0::Float64`: Fit-region time origin
 - `offset::Float64`
 - `signal_type::Symbol`: `:esa` (positive) or `:gsb` (negative)
-- `residuals::Vector{Float64}`
+- `residuals::Vector{Float64}`: `data − fit` (package-wide convention)
 - `rsquared::Float64`
 
 See [`mean_lifetime`](@ref) for ⟨τ⟩ = (τ/β)·Γ(1/β).
 """
-struct StretchedDecayFit
+struct StretchedDecayFit <: AbstractDecayFit
     amplitude::Float64
     tau::Float64
     beta::Float64
@@ -522,6 +564,9 @@ struct StretchedDecayFit
     residuals::Vector{Float64}
     rsquared::Float64
 end
+
+_taus(f::StretchedDecayFit) = [f.tau]
+_amplitudes(f::StretchedDecayFit) = [f.amplitude]
 
 """
     mean_lifetime(fit::StretchedDecayFit) -> Float64
@@ -607,7 +652,8 @@ end
 # Index by parameter name
 function Base.getindex(r::PeakFitResult, name::Symbol)
     idx = findfirst(==(name), r.params)
-    isnothing(idx) && error("Parameter :$name not found. Available: $(r.params)")
+    isnothing(idx) && throw(ArgumentError(
+        "Parameter :$name not found. Available: $(r.params)"))
     return (value=r.values[idx], err=r.errors[idx], ci=r.ci[idx])
 end
 
@@ -967,8 +1013,10 @@ end
 function Base.show(io::IO, m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
     tu = (u = Symbol(get(m.metadata, :time_unit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
-    t_range = "$(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu"
-    wl_range = "$(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1))"
+    t_range = isempty(m.time) ? "empty" :
+        "$(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu"
+    wl_range = isempty(m.wavelength) ? "empty" :
+        "$(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1))"
     print(io, "TimeResolvedMatrix: $n_time × $n_wl ($t_range, $wl_range)")
 end
 
@@ -976,9 +1024,18 @@ function Base.show(io::IO, ::MIME"text/plain", m::TimeResolvedMatrix)
     n_time, n_wl = size(m.data)
     tu = (u = Symbol(get(m.metadata, :time_unit, :ps)); get(_UNIT_DISPLAY, u, String(u)))
     println(io, "TimeResolvedMatrix")
-    println(io, "  Time points:   $n_time ($(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu)")
-    println(io, "  Wavelengths:   $n_wl ($(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1)))")
-    println(io, "  Data range:    $(round(minimum(m.data), sigdigits=3)) to $(round(maximum(m.data), sigdigits=3))")
+    if isempty(m.time)
+        println(io, "  Time points:   0")
+    else
+        println(io, "  Time points:   $n_time ($(round(minimum(m.time), digits=2)) to $(round(maximum(m.time), digits=2)) $tu)")
+    end
+    if isempty(m.wavelength)
+        println(io, "  Wavelengths:   0")
+    else
+        println(io, "  Wavelengths:   $n_wl ($(round(minimum(m.wavelength), digits=1)) to $(round(maximum(m.wavelength), digits=1)))")
+    end
+    isempty(m.data) ||
+        println(io, "  Data range:    $(round(minimum(m.data), sigdigits=3)) to $(round(maximum(m.data), sigdigits=3))")
     haskey(m.metadata, :source) && println(io, "  Source:        $(m.metadata[:source])")
 end
 
@@ -986,9 +1043,21 @@ end
 # TimeResolvedMatrix indexing
 # =============================================================================
 
+# Fused zero-alloc nearest-index lookup. NaN axis entries never win
+# (NaN < best is false), so gappy axes select the nearest real point.
 function _find_nearest_idx(arr::AbstractVector, target::Real)
-    _, idx = findmin(abs.(arr .- target))
-    return idx
+    best_idx = 0
+    best = Inf
+    for i in eachindex(arr)
+        d = abs(arr[i] - target)
+        if d < best
+            best = d
+            best_idx = i
+        end
+    end
+    best_idx == 0 && throw(ArgumentError(
+        "cannot find nearest index: axis is empty or all-NaN"))
+    return best_idx
 end
 
 # A kinetic (time-axis) slice inherits matrix metadata but its x-axis is time:
@@ -1014,7 +1083,10 @@ function Base.getindex(m::TimeResolvedMatrix; λ=nothing, t=nothing)
         md[:actual_wavelength] = actual_λ
         md[:wavelength_index] = idx
 
-        return KineticTrace(m.time, sig, actual_λ, md)
+        # Copy the time axis: KineticTrace fields are concrete Vector{Float64},
+        # so passing m.time through would alias the matrix's axis and let
+        # trace mutations corrupt the matrix.
+        return KineticTrace(copy(m.time), sig, actual_λ, md)
 
     elseif !isnothing(t) && isnothing(λ)
         idx = _find_nearest_idx(m.time, t)
@@ -1033,9 +1105,9 @@ function Base.getindex(m::TimeResolvedMatrix; λ=nothing, t=nothing)
         return Spectrum(m.wavelength, sig, md)
 
     elseif !isnothing(λ) && !isnothing(t)
-        error("Cannot specify both λ and t. Use matrix[λ=...] or matrix[t=...]")
+        throw(ArgumentError("Cannot specify both λ and t. Use matrix[λ=...] or matrix[t=...]"))
     else
-        error("Must specify either λ or t for indexing. Use matrix[λ=...] or matrix[t=...]")
+        throw(ArgumentError("Must specify either λ or t for indexing. Use matrix[λ=...] or matrix[t=...]"))
     end
 end
 
@@ -1140,6 +1212,12 @@ Return the signal.
 """
 signal(s::Spectrum) = s.y
 
+# Rewrap helpers: new y on the same x, metadata shallow-copied. The 4-argument
+# form retags the signal tokens for y-changing operations (see _retag_signal!).
+_with_y(s::Spectrum, y::AbstractVector) = Spectrum(s.x, y, copy(s.metadata))
+_with_y(s::Spectrum, y::AbstractVector, quantity::Symbol, unit::Symbol) =
+    Spectrum(s.x, y, _retag_signal!(copy(s.metadata), quantity, unit))
+
 function Base.show(io::IO, s::Spectrum)
     n = length(s.x)
     range = isempty(s.x) ? "" :
@@ -1184,7 +1262,8 @@ global analysis with shared τ values and per-trace amplitudes.
 - `wavelengths::Union{Nothing, Vector{Float64}}`: Wavelength axis (from TimeResolvedMatrix input)
 - `rsquared::Float64`: Global R²
 - `rsquared_individual::Vector{Float64}`: Per-trace R²
-- `residuals::Vector{Vector{Float64}}`: Per-trace residuals
+- `residuals::Vector{Vector{Float64}}`: Per-trace residuals, `data − fit`
+  (package-wide convention)
 
 # Derived properties
 - `n_exp(fit)`: Number of exponential components
@@ -1219,7 +1298,8 @@ Each row is the amplitude spectrum for one time constant.
 Requires that the fit was performed on a `TimeResolvedMatrix` (wavelengths must be available).
 """
 function das(fit::GlobalFitResult)
-    isnothing(fit.wavelengths) && error("DAS requires wavelength axis (use TimeResolvedMatrix input)")
+    isnothing(fit.wavelengths) && throw(ArgumentError(
+        "DAS requires wavelength axis (use TimeResolvedMatrix input)"))
     return permutedims(fit.amplitudes)  # n_exp × n_wavelengths
 end
 
@@ -1510,7 +1590,7 @@ unitless.
 ydata_unitful(d::AbstractSpectroscopyData) =
     ydata(d) .* _unitful(Symbol(get(_metadata(d), :yunit, :dimensionless)))
 ydata_unitful(m::TimeResolvedMatrix) =
-    ydata(m) .* _unitful(Symbol(get(_metadata(m), :time_unit, :ps)))
+    ydata(m) .* _unitful(Symbol(get(_metadata(m), :time_unit, :dimensionless)))
 
 """
     guess_units!(s::Spectrum) -> Spectrum

@@ -106,7 +106,8 @@ end
 _blocks(n::Int, k::Int) = [((i - 1) * k + 1):min(i * k, n) for i in 1:cld(n, k)]
 
 # Indices of `axis` within `center ± width/2`; nearest single index when the
-# window is empty or width <= 0.
+# window is empty or width <= 0. NaN axis entries are never selected
+# (_find_nearest_idx skips them; NaN fails the window comparison).
 function _axis_window(axis::AbstractVector, center::Real, width::Real)
     isnan(center) && throw(ArgumentError("axis window center is NaN"))
     if width > 0
@@ -114,6 +115,6 @@ function _axis_window(axis::AbstractVector, center::Real, width::Real)
         found = findall(a -> center - half <= a <= center + half, axis)
         !isempty(found) && return found
     end
-    idx = argmin(abs.(axis .- center))
+    idx = _find_nearest_idx(axis, center)
     return idx:idx
 end

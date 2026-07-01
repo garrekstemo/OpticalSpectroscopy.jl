@@ -225,8 +225,8 @@ Random.seed!(42)
         @test spec.metadata[:time_delay] ≈ 2.0
 
         # Error cases
-        @test_throws ErrorException matrix[]
-        @test_throws ErrorException matrix[λ=800, t=1.0]
+        @test_throws ArgumentError matrix[]
+        @test_throws ArgumentError matrix[λ=800, t=1.0]
     end
 
     @testset "Spectrum - construction" begin
@@ -1006,7 +1006,7 @@ Random.seed!(42)
             0.9945, [0.9950, 0.9940],
             [zeros(10), zeros(10)]
         )
-        @test_throws ErrorException das(r)
+        @test_throws ArgumentError das(r)
     end
 
     @testset "predict - ExpDecayFit" begin
@@ -1251,12 +1251,12 @@ Random.seed!(42)
         # Mismatched lengths → error with interpolate hint
         ν_short = collect(1900.0:2.0:2100.0)
         y_short = @. 0.1 * exp(-((ν_short - 2000) / 30)^2)
-        @test_throws ErrorException subtract_spectrum((x=ν, y=y1), (x=ν_short, y=y_short))
+        @test_throws ArgumentError subtract_spectrum((x=ν, y=y1), (x=ν_short, y=y_short))
 
         # Misaligned x-values (same length, different grids) → error with hint
         ν_shifted = ν .+ 0.5
         y_shifted = @. 0.1 * exp(-((ν_shifted - 2000) / 30)^2)
-        @test_throws ErrorException subtract_spectrum((x=ν, y=y1), (x=ν_shifted, y=y_shifted))
+        @test_throws ArgumentError subtract_spectrum((x=ν, y=y1), (x=ν_shifted, y=y_shifted))
 
         # Small misalignment (< 0.01) passes without error
         ν_tiny_shift = ν .+ 0.005
@@ -2178,8 +2178,8 @@ Random.seed!(42)
         @test spec.x ≈ x[3]
 
         # extract_spectrum bounds check
-        @test_throws ErrorException extract_spectrum(m, 0, 1)
-        @test_throws ErrorException extract_spectrum(m, 1, 6)
+        @test_throws ArgumentError extract_spectrum(m, 0, 1)
+        @test_throws ArgumentError extract_spectrum(m, 1, 6)
 
         # extract_spectrum by position
         spec2 = extract_spectrum(m; x=0.0, y=0.0)
@@ -2198,7 +2198,9 @@ Random.seed!(42)
         @test mb isa PLMap
         @test size(mb.spectra) == size(m.spectra)
         @test size(mb.intensity) == size(m.intensity)
-        @test mb.x === m.x && mb.y === m.y && mb.pixel === m.pixel
+        # Axes are copied (not aliased) so mutating the result can't corrupt m
+        @test mb.x == m.x && mb.y == m.y && mb.pixel == m.pixel
+        @test mb.x !== m.x && mb.y !== m.y && mb.pixel !== m.pixel
         @test mb.spectra != m.spectra
 
         # subtract_background with explicit margin
@@ -2737,7 +2739,7 @@ Random.seed!(42)
         @testset "grid mismatch error" begin
             x_short = collect(1.0:0.5:5.0)
             b_short = (x=x_short, y=ones(length(x_short)))
-            @test_throws ErrorException add_spectra(a, b_short)
+            @test_throws ArgumentError add_spectra(a, b_short)
         end
     end
 
@@ -3590,4 +3592,5 @@ Random.seed!(42)
 
     include("test_cavity.jl")
     include("tokens.jl")
+    include("test_audit_fixes.jl")
 end

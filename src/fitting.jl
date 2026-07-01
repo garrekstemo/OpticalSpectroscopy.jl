@@ -7,21 +7,22 @@ automatic fitting routines that use those models.
 
 # Internal IRF functions
 
-function _erfc(x)
-    if x < 0
-        return 2.0 - _erfc(-x)
-    end
-    t = 1.0 / (1.0 + 0.3275911 * x)
-    tau = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 +
-          t * (-1.453152027 + t * 1.061405429))))
-    return tau * exp(-x^2)
-end
-
+# Exponential decay ⊗ Gaussian IRF:
+#   (A/2)·exp(σ²/2τ² − t′/τ)·erfc((σ/τ − t′/σ)/√2),  t′ = t − t₀.
+# For τ ≪ σ the exp factor overflows while erfc underflows, so for
+# arg_erfc ≥ 0 the product is evaluated in the exactly equivalent scaled form
+#   (A/2)·erfcx(arg_erfc)·exp(−t′²/2σ²),   erfcx(x) = exp(x²)·erfc(x),
+# which is finite and accurate for any σ/τ. Both branches are
+# ForwardDiff-compatible (SpecialFunctions provides erfc/erfcx rules).
 function _exp_decay_irf_conv(t, A, tau, t0, sigma)
     t_shifted = t - t0
-    arg_exp = sigma^2 / (2 * tau^2) - t_shifted / tau
-    arg_erfc = (sigma^2 / tau - t_shifted) / (sigma * sqrt(2))
-    return (A / 2) * exp(arg_exp) * _erfc(arg_erfc)
+    arg_erfc = (sigma / tau - t_shifted / sigma) / sqrt(2)
+    if arg_erfc >= 0
+        return (A / 2) * erfcx(arg_erfc) * exp(-t_shifted^2 / (2 * sigma^2))
+    else
+        arg_exp = sigma^2 / (2 * tau^2) - t_shifted / tau
+        return (A / 2) * exp(arg_exp) * erfc(arg_erfc)
+    end
 end
 
 # Internal helpers for fitting
@@ -88,13 +89,13 @@ function fit_decay_irf(t::AbstractVector{<:Real}, signal::AbstractVector{<:Real}
     tau = abs(tau)
     sigma = abs(sigma)
 
+    # data − fit, computed explicitly: CurveFit's residuals(sol) convention
+    # has flipped sign between releases, so it is never trusted here.
     return ExpDecayFit(A, tau, t0, sigma, offset, signal_type,
-                       residuals(sol), _rsquared(signal, rss(sol)))
+                       signal .- fitted(sol), _rsquared(signal, rss(sol)))
 end
 
-# Pulse width estimation
-
-const FWHM_FACTOR = 2 * sqrt(2 * log(2))  # ≈ 2.355
+# Pulse width estimation (FWHM_FACTOR lives in units.jl)
 
 """
     irf_fwhm(sigma)
@@ -179,6 +180,8 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
         return fit_decay_irf(t, signal; sigma_init=irf_width)
     else
         mask = t .>= t_start
+        count(mask) >= 5 || throw(ArgumentError(
+            "fit region contains $(count(mask)) points; need at least 5"))
         t_fit = t[mask]
         signal_fit = signal[mask]
 
@@ -191,12 +194,11 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
         A0 = peak_val - offset0
         tau0 = (t_fit[end] - t_fit[1]) / 3.0
 
-        function exp_model(p, t_vec)
-            A, tau, offset = p
-            return @. A * exp(-(t_vec - t_start) / abs(tau)) + offset
-        end
-
-        prob = NonlinearCurveFitProblem(exp_model, [A0, tau0, offset0], t_fit, signal_fit)
+        # CurveFitModels single_exponential on the t_start-shifted axis,
+        # mirroring the t-shift + n_exponentials approach of the multi-exp path
+        t_shifted = t_fit .- t_start
+        prob = NonlinearCurveFitProblem(single_exponential, [A0, tau0, offset0],
+                                        t_shifted, signal_fit)
         sol = solve(prob)
 
         A, tau, offset = coef(sol)
@@ -204,7 +206,7 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
 
         return ExpDecayFit(
             A, tau, t_start, NaN, offset,
-            signal_type, residuals(sol), _rsquared(signal_fit, rss(sol))
+            signal_type, signal_fit .- fitted(sol), _rsquared(signal_fit, rss(sol))
         )
     end
 end
@@ -251,8 +253,8 @@ function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range
     beta_c <= 0.051 && @warn "stretched fit: β converged to the lower clamp (0.05); fit may be unreliable or the data is non-KWW"
     beta_c >= 0.999 && @warn "stretched fit: β converged to the upper clamp (1.0); consider model=:exponential"
 
-    return StretchedDecayFit(A, abs(tau), beta_c, origin, offset,
-                             signal_type, residuals(sol), _rsquared(signal_fit, rss(sol)))
+    return StretchedDecayFit(A, abs(tau), beta_c, origin, offset, signal_type,
+                             signal_fit .- fitted(sol), _rsquared(signal_fit, rss(sol)))
 end
 
 # =============================================================================
@@ -276,6 +278,8 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
         signal_fit = signal
     else
         mask = t .>= t_start
+        count(mask) >= 5 || throw(ArgumentError(
+            "fit region contains $(count(mask)) points; need at least 5"))
         t_fit = t[mask]
         signal_fit = signal[mask]
     end
@@ -318,12 +322,21 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
         p0 = vcat(taus_init, amps_init, [0.0, irf_width, offset0])
 
         function multiexp_irf_model(p, t_vec)
-            taus = abs.(p[1:n_exp])
-            amps = p[n_exp+1:2*n_exp]
+            # @views: parameter slices are hot-loop reads, never mutated
+            taus = @view p[1:n_exp]
+            amps = @view p[n_exp+1:2*n_exp]
             t0 = p[2*n_exp+1]
             sigma = abs(p[2*n_exp+2])
             offset = p[2*n_exp+3]
-            return [_multiexp_irf_conv(ti, taus, amps, t0, sigma, offset) for ti in t_vec]
+            y = similar(p, length(t_vec))
+            for (i, ti) in enumerate(t_vec)
+                acc = offset
+                for j in eachindex(taus)
+                    acc += _exp_decay_irf_conv(ti, amps[j], abs(taus[j]), t0, sigma)
+                end
+                y[i] = acc
+            end
+            return y
         end
 
         prob = NonlinearCurveFitProblem(multiexp_irf_model, p0, t_fit, signal_fit)
@@ -376,7 +389,7 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
     return MultiexpDecayFit(
         taus_sorted, amps_sorted,
         t0, sigma, offset,
-        signal_type, residuals(sol), rsquared
+        signal_type, signal_fit .- fitted(sol), rsquared
     )
 end
 
@@ -454,7 +467,8 @@ function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float
     total_len = sum(length(tr.time) for tr in traces)
 
     function global_model(p, dummy_x)
-        taus = abs.(p[1:n_exp])
+        # @views + inline abs: this objective is called once per Jacobian
+        # column per iteration, so per-call slice copies dominate allocations
         sigma = abs(p[n_exp+1])
         t0 = p[n_exp+2]
 
@@ -462,12 +476,15 @@ function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float
         idx = 1
         for i in 1:n_traces
             base = n_shared + (i-1) * n_per_trace
-            amps = p[base+1:base+n_exp]
             offset = p[base+n_exp+1]
             t_vec = traces[i].time
 
             for t in t_vec
-                y_pred[idx] = _multiexp_irf_conv(t, taus, amps, t0, sigma, offset)
+                acc = offset
+                for j in 1:n_exp
+                    acc += _exp_decay_irf_conv(t, p[base+j], abs(p[j]), t0, sigma)
+                end
+                y_pred[idx] = acc
                 idx += 1
             end
         end
@@ -507,8 +524,9 @@ function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float
     residuals_vec = Vector{Vector{Float64}}(undef, n_traces)
     rsquared_individual = zeros(n_traces)
 
-    resid_all = residuals(sol)
+    # data − fit, computed explicitly (see fit_decay_irf)
     y_pred_all = fitted(sol)
+    resid_all = y_all .- y_pred_all
     idx = 1
     for i in 1:n_traces
         n_pts = length(traces[i].time)
@@ -661,15 +679,11 @@ function fit_lifetime_spectrum(m::TimeResolvedMatrix; n_exp::Int=1, nbins::Int=3
             continue
         end
 
-        if fit isa ExpDecayFit
-            taus[i, 1] = fit.tau
-            amplitudes[i, 1] = fit.amplitude
-        elseif fit isa MultiexpDecayFit
-            taus[i, :] .= fit.taus
-            amplitudes[i, :] .= fit.amplitudes
-        else
-            continue
-        end
+        fit isa AbstractDecayFit || continue
+        ts = _taus(fit)
+        length(ts) == n_exp || continue
+        taus[i, :] .= ts
+        amplitudes[i, :] .= _amplitudes(fit)
         rsq[i] = fit.rsquared
         fitted[i] = true
     end
@@ -771,13 +785,13 @@ function _build_ta_model(fns, signs, npps, fit_offset)
         p_idx = 1
         for i in eachindex(fns)
             npp = npps[i]
-            peak_p = p[p_idx:p_idx+npp-1]
-            y = y .+ signs[i] .* fns[i](peak_p, x)
+            peak_p = @view p[p_idx:p_idx+npp-1]
+            y .+= signs[i] .* fns[i](peak_p, x)
             p_idx += npp
         end
 
         if fit_offset
-            y = y .+ p[p_idx]
+            y .+= p[p_idx]
         end
 
         return y
@@ -835,8 +849,11 @@ function _ta_initial_guesses(ν, y, peak_specs, signs, npps, fit_offset)
         push!(p0, pk.position)
         push!(p0, _width_guess(pk.width, fn))
 
-        if npps[i] >= 4 && fn === pseudo_voigt
-            push!(p0, 0.5)
+        # Every 4-parameter model needs its 4th guess (voigt γ, fano q,
+        # pseudo-voigt mixing) or the parameter vector misaligns downstream.
+        if npps[i] >= 4
+            fourth = _MODEL_INFO[fn].fourth_p0
+            isnothing(fourth) || push!(p0, fourth(pk.width))
         end
     end
 
@@ -916,7 +933,8 @@ function fit_ta_spectrum(spec::Spectrum;
 
     signs = Int[]
     for (label, _) in peak_specs
-        haskey(_PEAK_SIGNS, label) || error("Unknown peak type :$label. Use :esa, :gsb, :se, :positive, or :negative.")
+        haskey(_PEAK_SIGNS, label) || throw(ArgumentError(
+            "Unknown peak type :$label. Use :esa, :gsb, :se, :positive, or :negative."))
         push!(signs, _PEAK_SIGNS[label])
     end
 
@@ -951,7 +969,7 @@ function fit_ta_spectrum(spec::Spectrum;
 
     return TASpectrumFit(
         ta_peaks, offset_val,
-        _rsquared(y, rss(sol)), residuals(sol),
+        _rsquared(y, rss(sol)), y .- fitted(sol),
         collect(p_opt), fns, signs, npps, fit_offset, ν
     )
 end

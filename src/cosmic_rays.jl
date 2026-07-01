@@ -39,7 +39,8 @@ end
 Result of cosmic ray detection on a PLMap.
 
 # Fields
-- `mask::BitArray{3}` — `(nx, ny, n_pixel)`, `true` = cosmic ray
+- `mask::BitArray{3}` — channel-major `(n_pixel, nx, ny)` like `PLMap.spectra`,
+  `true` = cosmic ray
 - `count::Int` — total flagged voxels
 - `affected_spectra::Int` — number of spectra with at least one cosmic ray
 - `channel_counts::Vector{Int}` — cosmic ray count per spectral channel
@@ -100,8 +101,8 @@ function detect_cosmic_rays(signal::AbstractVector; threshold::Real=5.0)
         return CosmicRayResult(Int[], 0)
     end
 
-    # Modified z-scores (0.6745 ≈ Φ⁻¹(0.75), makes MAD consistent with σ)
-    z_scores = @. 0.6745 * (diffs - med) / mad_val
+    # Modified z-scores (MAD_TO_SIGMA makes MAD consistent with σ)
+    z_scores = @. (diffs - med) / (MAD_TO_SIGMA * mad_val)
 
     # A cosmic ray spike creates a positive jump followed by a negative jump.
     # Flag the channel where the spike sits: if z[k] > threshold (upward jump),
@@ -139,7 +140,7 @@ is elevated above the nearest non-flagged reference channel by more than
 function _expand_to_shoulders!(flagged::Set{Int}, signal::AbstractVector, mad_val::Real;
                                factor::Real=3.0)
     n = length(signal)
-    noise_est = mad_val / 0.6745  # MAD → σ estimate
+    noise_est = mad_val * MAD_TO_SIGMA  # MAD → σ estimate
 
     changed = true
     while changed
@@ -251,24 +252,42 @@ Find the neighbor with the highest Pearson correlation to `signal`.
 Returns the 1-based index into `neighbors` and the correlation value.
 At spatial boundaries, the most-similar neighbor is on the same side,
 so real spectral differences don't create false residuals.
+
+Zero-allocation: the Pearson correlation is fused into a single loop over
+sum accumulators (Σs, Σn, Σsn, Σs², Σn²) — this runs 2–3× per pixel across
+the detection/removal passes, so per-neighbor temporaries dominated the old
+allocation profile.
 """
 function _most_similar_neighbor(signal::AbstractVector, neighbors::Vector)
     best_idx = 1
     best_corr = -Inf
     n = length(signal)
-    # Precompute signal stats
-    s_mean = mean(signal)
-    s_centered = signal .- s_mean
-    s_ss = sqrt(sum(abs2, s_centered))
+
+    s_sum = 0.0
+    s_sum2 = 0.0
+    @inbounds for k in 1:n
+        v = Float64(signal[k])
+        s_sum += v
+        s_sum2 += v * v
+    end
+    s_var = s_sum2 - s_sum * s_sum / n   # n·Var(signal)
 
     for (i, nb) in enumerate(neighbors)
-        nb_mean = mean(nb)
-        nb_centered = nb .- nb_mean
-        nb_ss = sqrt(sum(abs2, nb_centered))
-        if s_ss < eps(Float64) || nb_ss < eps(Float64)
+        nb_sum = 0.0
+        nb_sum2 = 0.0
+        sn_sum = 0.0
+        @inbounds for k in 1:n
+            v = Float64(nb[k])
+            w = Float64(signal[k])
+            nb_sum += v
+            nb_sum2 += v * v
+            sn_sum += w * v
+        end
+        nb_var = nb_sum2 - nb_sum * nb_sum / n
+        if s_var < eps(Float64) || nb_var < eps(Float64)
             continue
         end
-        corr = sum(s_centered .* nb_centered) / (s_ss * nb_ss)
+        corr = (sn_sum - s_sum * nb_sum / n) / sqrt(s_var * nb_var)
         if corr > best_corr
             best_corr = corr
             best_idx = i
@@ -363,54 +382,57 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
     # Two-pass approach: first compute per-pixel noise estimates to establish
     # a global noise floor, then flag with max(local_σ, floor). This prevents
     # false positives in spatially homogeneous regions where local σ is tiny.
-    sigmas = fill(NaN, nx, ny)
+    # The MSN index and the residual median/MAD are cached from the first pass
+    # so the second pass never repeats the correlation or median work.
+    msn_idx = zeros(Int, nx, ny)
+    med_m = fill(NaN, nx, ny)
+    mad_m = fill(NaN, nx, ny)
     Threads.@threads for idx in CartesianIndices((nx, ny))
         ix, iy = idx[1], idx[2]
         neighbors = _neighbor_spectra(m.spectra, ix, iy, nx, ny, p1, p2)
         isempty(neighbors) && continue
         signal = @view pixel_view(m, ix, iy)[p1:p2]
-        # Use most similar neighbor for noise estimation (consistent with detection)
-        best_idx, _ = _most_similar_neighbor(signal, neighbors)
-        ref = neighbors[best_idx]
-        residual = Vector{Float64}(undef, n_ch)
-        for k in 1:n_ch
-            residual[k] = signal[k] - ref[k]
-        end
-        mad_r = median(abs.(residual .- median(residual)))
-        if mad_r > eps(Float64)
-            sigmas[ix, iy] = mad_r / 0.6745
-        end
-    end
-    pixel_sigmas = filter(!isnan, vec(sigmas))
-    noise_floor = isempty(pixel_sigmas) ? 0.0 : median(pixel_sigmas)
-
-    Threads.@threads for idx in CartesianIndices((nx, ny))
-        ix, iy = idx[1], idx[2]
-        neighbors = _neighbor_spectra(m.spectra, ix, iy, nx, ny, p1, p2)
-        isempty(neighbors) && continue
-
-        signal = @view pixel_view(m, ix, iy)[p1:p2]
-
         # Most Similar Neighbor (MSN) reference: compare to the neighbor with
         # the highest spectral correlation. At spatial boundaries, the MSN is
         # on the same side of the boundary, so real spectral differences vanish
         # in the residual. Only true cosmic ray spikes remain.
         best_idx, _ = _most_similar_neighbor(signal, neighbors)
+        msn_idx[ix, iy] = best_idx
         ref = neighbors[best_idx]
-
         residual = Vector{Float64}(undef, n_ch)
-        for k in 1:n_ch
+        scratch = Vector{Float64}(undef, n_ch)
+        @inbounds for k in 1:n_ch
             residual[k] = signal[k] - ref[k]
         end
+        copyto!(scratch, residual)
+        med_r = median!(scratch)
+        @inbounds for k in 1:n_ch
+            scratch[k] = abs(residual[k] - med_r)
+        end
+        med_m[ix, iy] = med_r
+        mad_m[ix, iy] = median!(scratch)
+    end
+    pixel_sigmas = [mr * MAD_TO_SIGMA for mr in vec(mad_m) if !isnan(mr) && mr > eps(Float64)]
+    noise_floor = isempty(pixel_sigmas) ? 0.0 : median(pixel_sigmas)
+
+    Threads.@threads for idx in CartesianIndices((nx, ny))
+        ix, iy = idx[1], idx[2]
+        best_idx = msn_idx[ix, iy]
+        best_idx == 0 && continue          # no neighbors (1×1 map)
+        mad_r = mad_m[ix, iy]
+        mad_r < eps(Float64) && continue
+
+        neighbors = _neighbor_spectra(m.spectra, ix, iy, nx, ny, p1, p2)
+        ref = neighbors[best_idx]
+        signal = @view pixel_view(m, ix, iy)[p1:p2]
 
         # Flag positive outliers using MAD-based scale with noise floor
-        med_r = median(residual)
-        mad_r = median(abs.(residual .- med_r))
-        mad_r < eps(Float64) && continue
-        σ = max(mad_r / 0.6745, noise_floor)
+        med_r = med_m[ix, iy]
+        σ = max(mad_r * MAD_TO_SIGMA, noise_floor)
+        cutoff = med_r + Float64(threshold) * σ
 
-        for k in 1:n_ch
-            if residual[k] - med_r > Float64(threshold) * σ
+        @inbounds for k in 1:n_ch
+            if signal[k] - ref[k] > cutoff
                 mask[k + p1 - 1, ix, iy] = true
             end
         end
@@ -421,9 +443,11 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
         _unflag_wide_runs!(mask, ix, iy, p1, p2, max_spike_width)
 
         # Safety: if too many channels remain flagged after the width filter,
-        # it's spatial variation, not cosmic rays. Clear all flags.
+        # it's spatial variation, not cosmic rays. Clear all flags. The cap is
+        # ~5% of channels but never below 1, so a single genuine spike in a
+        # short pixel_range (n_ch < 20) survives.
         remaining = count(@view mask[p1:p2, ix, iy])
-        if remaining > n_ch ÷ 20  # > 5% of channels
+        if remaining > max(1, n_ch ÷ 20)
             for k in p1:p2
                 mask[k, ix, iy] = false
             end
@@ -449,9 +473,13 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
 end
 
 """
-    remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult) -> PLMap
+    remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult; pixel_range=nothing) -> PLMap
 
 Remove cosmic rays from a PLMap using scaled Most Similar Neighbor (MSN) replacement.
+
+Pass the same `pixel_range` used for detection so the MSN scale factor is
+computed over the same channel window; it defaults to the `pixel_range` in
+`m.metadata` (or the full spectrum) exactly like detection.
 
 For each affected pixel, finds the 4-connected neighbor with the highest Pearson
 correlation (the MSN). A scale factor is computed from non-flagged channels to match
@@ -470,7 +498,8 @@ cr = detect_cosmic_rays(plmap)
 cleaned = remove_cosmic_rays(plmap, cr)
 ```
 """
-function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
+function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult;
+                            pixel_range::Union{Tuple{Int,Int},Nothing}=nothing)
     if result.count == 0
         return m
     end
@@ -478,8 +507,9 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
     np, nx, ny = size(m.spectra)
     cleaned = copy(m.spectra)
 
-    # Use same channel range as detection
-    pr = get(m.metadata, :pixel_range, nothing)
+    # Same channel-range resolution as detection: explicit kwarg wins,
+    # then metadata, then the full spectrum.
+    pr = !isnothing(pixel_range) ? pixel_range : get(m.metadata, :pixel_range, nothing)
     p1 = !isnothing(pr) ? max(1, Int(pr[1])) : 1
     p2 = !isnothing(pr) ? min(np, Int(pr[2])) : np
     n_ch = p2 - p1 + 1
@@ -527,16 +557,18 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult)
         end
     end
 
-    # Recompute intensity
-    pixel_range = get(m.metadata, :pixel_range, nothing)
-    if !isnothing(pixel_range)
-        rp1, rp2 = pixel_range
+    # Recompute intensity over the map's own integration window (metadata),
+    # which defines what `intensity` means — independent of the detection range.
+    ipr = get(m.metadata, :pixel_range, nothing)
+    if !isnothing(ipr)
+        rp1, rp2 = ipr
         new_intensity = dropdims(sum((@view cleaned[Int(rp1):Int(rp2), :, :]); dims=1); dims=1)
     else
         new_intensity = dropdims(sum(cleaned; dims=1); dims=1)
     end
 
-    return PLMap(new_intensity, cleaned, m.x, m.y, m.pixel, m.metadata)
+    return PLMap(new_intensity, cleaned, copy(m.x), copy(m.y), copy(m.pixel),
+                 copy(m.metadata))
 end
 
 # =============================================================================
@@ -597,7 +629,7 @@ photon-counting data (where `filtered ≈ N` counts). The noise scale is estimat
 from the **positive scaled residuals only**: their median `med₊` and MAD `MAD₊`.
 A pixel is flagged when
 
-    scaled_resid > med₊ + threshold × MAD₊ / 0.6745
+    scaled_resid > med₊ + threshold × MAD₊ × 1.4826
 
 Only positive outliers are flagged — cosmic rays deposit charge, so they are
 always bright.
@@ -643,7 +675,7 @@ function detect_cosmic_rays(m::TimeResolvedMatrix; threshold::Real=5.0,
         return CosmicRayMatrixResult(CartesianIndex{2}[], 0, float(threshold))
     end
     # Flag pixels where the residual is a large positive outlier
-    flagged = findall(@. resid > med + Float64(threshold) * (mad_val / 0.6745))
+    flagged = findall(@. resid > med + Float64(threshold) * (mad_val * MAD_TO_SIGMA))
     # Sharp temporal features (e.g. an IRF-limited rise at time zero) flag
     # entire time rows across wavelength; cosmic rays hit isolated pixels.
     # Drop rows where more than `row_fraction_limit` of channels are flagged.
@@ -686,5 +718,5 @@ function remove_cosmic_rays(m::TimeResolvedMatrix, result::CosmicRayMatrixResult
     end
     md = copy(m.metadata)
     md[:cosmic_rays_removed] = result.count
-    return TimeResolvedMatrix(m.time, m.wavelength, data, md)
+    return TimeResolvedMatrix(copy(m.time), copy(m.wavelength), data, md)
 end

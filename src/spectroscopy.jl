@@ -9,7 +9,7 @@
 
 Normalize array by maximum absolute value. Returns zeros if max is zero.
 """
-normalize(x) = (m = maximum(abs.(x)); m == 0 ? zero(x) : x ./ m)
+normalize(x) = (m = maximum(abs, x); m == 0 ? zero(x) : x ./ m)
 
 """
     time_index(times, t_target)
@@ -59,11 +59,7 @@ function transmittance_to_absorbance(s::Spectrum; percent::Union{Bool,Nothing}=n
     tf = pct ? s.y ./ 100 : s.y
     any(t -> t <= 0, tf) && @warn "nonpositive transmittance mapped to NaN"
     y = [t > 0 ? -log10(t) : NaN for t in tf]
-    md = copy(s.metadata)
-    delete!(md, :ylabel)
-    md[:yquantity] = :absorbance
-    md[:yunit] = :OD
-    return Spectrum(s.x, y, md)
+    return _with_y(s, y, :absorbance, :OD)
 end
 
 """
@@ -95,11 +91,8 @@ function absorbance_to_transmittance(s::Spectrum; percent::Bool=false)
     q = get(s.metadata, :yquantity, nothing)
     isnothing(q) || Symbol(q) === :absorbance ||
         throw(ArgumentError("not an absorbance spectrum (yquantity = $(repr(q)))"))
-    md = copy(s.metadata)
-    delete!(md, :ylabel)
-    md[:yquantity] = :transmittance
-    md[:yunit] = percent ? :percent : :fraction
-    return Spectrum(s.x, absorbance_to_transmittance(s.y; percent=percent), md)
+    return _with_y(s, absorbance_to_transmittance(s.y; percent=percent),
+                   :transmittance, percent ? :percent : :fraction)
 end
 
 # ============================================================================
@@ -139,8 +132,9 @@ end
 Apply moving average smoothing to data.
 """
 function smooth_data(y; window::Int=3)
+    window >= 1 || throw(ArgumentError("window must be >= 1, got $window"))
     n = length(y)
-    smoothed = similar(y)
+    smoothed = similar(y, float(eltype(y)))
     half_w = window ÷ 2
 
     for i in eachindex(y)
@@ -290,7 +284,9 @@ end
 function derivative(x::AbstractVector{<:Real}, y::AbstractVector{<:Real};
                     order::Int=1, window::Int=11, poly_order::Int=3)
     dx = median(diff(collect(x)))
-    rate = 1.0 / abs(dx)
+    # Signed rate: SavitzkyGolay scales by rate^deriv, so a descending axis
+    # (dx < 0) flips odd-order derivatives back to the correct dy/dx sign.
+    rate = 1.0 / dx
     return _sg_filter(y, window, poly_order, deriv=order, rate=rate).y
 end
 
@@ -298,11 +294,12 @@ end
     derivative(s::Spectrum; order=1, window=11, poly_order=3) -> Spectrum
 
 Savitzky-Golay derivative of a [`Spectrum`](@ref), scaled by the x-spacing.
-Returns a new `Spectrum` with shallow-copied metadata.
+Returns a new `Spectrum` with shallow-copied metadata, retagged with the
+`:derivative` signal token (the original y-quantity no longer applies).
 """
 function derivative(s::Spectrum; order::Int=1, window::Int=11, poly_order::Int=3)
-    return Spectrum(s.x, derivative(s.x, s.y; order=order, window=window, poly_order=poly_order),
-                    copy(s.metadata))
+    return _with_y(s, derivative(s.x, s.y; order=order, window=window, poly_order=poly_order),
+                   :derivative, :dimensionless)
 end
 
 """
@@ -381,10 +378,11 @@ end
     normalize_area(s::Spectrum) -> Spectrum
 
 Normalize a [`Spectrum`](@ref) to unit integrated area. Returns a new
-`Spectrum` with shallow-copied metadata.
+`Spectrum` with shallow-copied metadata, retagged with the
+`:normalized_intensity` signal token (the original y-unit no longer applies).
 """
 function normalize_area(s::Spectrum)
-    return Spectrum(s.x, normalize_area(s.x, s.y), copy(s.metadata))
+    return _with_y(s, normalize_area(s.x, s.y), :normalized_intensity, :dimensionless)
 end
 
 """
@@ -430,11 +428,12 @@ end
     normalize_to_peak(s::Spectrum, position; tolerance=5.0) -> Spectrum
 
 Normalize a [`Spectrum`](@ref) to the intensity at `position`. Returns a new
-`Spectrum` with shallow-copied metadata.
+`Spectrum` with shallow-copied metadata, retagged with the
+`:normalized_intensity` signal token (the original y-unit no longer applies).
 """
 function normalize_to_peak(s::Spectrum, position::Real; tolerance::Real=5.0)
-    return Spectrum(s.x, normalize_to_peak(s.x, s.y, position; tolerance=tolerance),
-                    copy(s.metadata))
+    return _with_y(s, normalize_to_peak(s.x, s.y, position; tolerance=tolerance),
+                   :normalized_intensity, :dimensionless)
 end
 
 """
@@ -470,7 +469,7 @@ function estimate_snr(y::AbstractVector{<:Real})
     for i in 2:(n - 1)
         noise_arr[i - 1] = abs(2 * y[i] - y[i - 1] - y[i + 1])
     end
-    noise = median(noise_arr) / 0.6744897501960817
+    noise = median(noise_arr) * MAD_TO_SIGMA
     noise = noise / sqrt(6.0)
     signal = median(y)
     snr = noise > 0 ? signal / noise : Inf
@@ -492,7 +491,9 @@ end
 
 Internal helper: return `(a_y, b_y)` on a common x-grid.
 If `interpolate=true`, resamples `b` onto `a.x` using linear interpolation.
-Otherwise, validates that grids match.
+Otherwise, validates that grids match: x-values may differ by at most 10% of
+the median point spacing (float jitter), so grids offset by whole steps are
+rejected regardless of how fine the axis is.
 """
 function _align_spectra(a, b; interpolate=false)
     if interpolate
@@ -501,11 +502,15 @@ function _align_spectra(a, b; interpolate=false)
         itp = Interpolations.linear_interpolation(xs, ys, extrapolation_bc=Interpolations.Flat())
         return (collect(a.y), itp.(a.x))
     end
-    length(a.x) == length(b.x) || error(
-        "Grid mismatch: $(length(a.x)) vs $(length(b.x)) points. Use interpolate=true.")
-    max_diff = maximum(abs.(collect(a.x) .- collect(b.x)))
-    max_diff <= 0.01 || error(
-        "Grid mismatch: x-values differ by up to $(round(max_diff, digits=3)). Use interpolate=true.")
+    length(a.x) == length(b.x) || throw(ArgumentError(
+        "Grid mismatch: $(length(a.x)) vs $(length(b.x)) points. Use interpolate=true."))
+    ax = collect(Float64, a.x)
+    max_diff = maximum(abs.(ax .- collect(Float64, b.x)))
+    dx = length(ax) > 1 ? median(abs.(diff(ax))) : 1.0
+    tol = 0.1 * dx
+    max_diff <= tol || throw(ArgumentError(
+        "Grid mismatch: x-values differ by up to $max_diff (tolerance $tol, " *
+        "10% of the median point spacing). Use interpolate=true."))
     return (collect(a.y), collect(b.y))
 end
 
@@ -595,6 +600,14 @@ function multiply_spectrum(spec::AbstractSpectroscopyData, factor::Real)
     multiply_spectrum((x=xdata(spec), y=ydata(spec)), factor)
 end
 
+function average_spectra(specs::AbstractSpectroscopyData...; interpolate=false)
+    isempty(specs) && throw(ArgumentError("average_spectra requires at least one spectrum"))
+    for s in specs
+        _check_1d(s, "average_spectra")
+    end
+    average_spectra(map(s -> (x=xdata(s), y=ydata(s)), specs)...; interpolate=interpolate)
+end
+
 # Spectrum-in → Spectrum-out arithmetic. The result keeps the first
 # argument's metadata (shallow-copied).
 
@@ -623,11 +636,12 @@ end
     divide_spectra(a::Spectrum, b::Spectrum; interpolate=false) -> Spectrum
 
 Divide `a` by `b` element-wise. Returns a new `Spectrum` carrying `a`'s
-shallow-copied metadata.
+shallow-copied metadata, retagged with the `:ratio` signal token (a ratio is
+no longer in `a`'s y-units).
 """
 function divide_spectra(a::Spectrum, b::Spectrum; interpolate=false)
     res = divide_spectra((x=a.x, y=a.y), (x=b.x, y=b.y); interpolate=interpolate)
-    return Spectrum(res.x, res.y, copy(a.metadata))
+    return Spectrum(res.x, res.y, _retag_signal!(copy(a.metadata), :ratio, :dimensionless))
 end
 
 """
