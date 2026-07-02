@@ -1,8 +1,7 @@
 # Metadata token contract
 
 Status: **Implemented** (OpticalSpectroscopy.jl, 2026-06-16) — token vocabulary,
-clean-break no-guess labels, and the TASpectrum/GatedSpectrum collapse landed via
-docs/superpowers/plans/2026-06-16-metadata-token-contract-foundation.md. Remaining
+clean-break no-guess labels, and the TASpectrum/GatedSpectrum collapse landed 2026-06-16. Remaining
 follow-on: matrix axisN refactor (§10 #3), QPSScanFormat HDF5 codec, loader stamping.
 
 This is the cross-cutting contract the whole re-architecture leans on. Once

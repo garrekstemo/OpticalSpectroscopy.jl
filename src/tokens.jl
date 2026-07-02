@@ -2,7 +2,7 @@
 Metadata token contract: controlled vocabularies, label derivation, instrument-
 string normalization, and the Symbol↔Unitful bridge.
 
-See docs/superpowers/2026-06-15-metadata-token-contract.md. Every axis is a
+See docs/dev/metadata-token-contract.md. Every axis is a
 `(quantity, unit)` pair of `Symbol` tokens; display labels are *derived* from
 those tokens, never stored as prose and never guessed from data magnitudes.
 """
