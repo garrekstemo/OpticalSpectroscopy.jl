@@ -552,6 +552,38 @@ const OS = OpticalSpectroscopy
     # Priority 4 — performance changes with observable equivalence
     # =========================================================================
 
+    @testset "#17 remove_cosmic_rays(PLMap): reuses detection MSN index" begin
+        rng = MersenneTwister(17)
+        np, nx, ny = 64, 5, 5
+        spectra = 100.0 .+ randn(rng, np, nx, ny)
+        spectra[10, 3, 3] += 5000.0
+        pm = PLMap(dropdims(sum(spectra; dims=1); dims=1), spectra,
+                   collect(1.0:nx), collect(1.0:ny), collect(1.0:np),
+                   Dict{Symbol,Any}())
+
+        cr = detect_cosmic_rays(pm)
+        @test cr.mask[10, 3, 3]
+
+        # (a) detection caches the MSN index; every pixel of a 5×5 map has
+        # neighbors, so every entry is a valid neighbor-list index
+        @test size(cr.msn_index) == (nx, ny)
+        @test all(>(0), cr.msn_index)
+
+        # (b) removal via the cached index matches the recomputed path exactly
+        zeroed = CosmicRayMapResult(cr.mask, cr.count, cr.affected_spectra,
+                                    cr.channel_counts, zeros(Int, nx, ny))
+        cleaned_cached = remove_cosmic_rays(pm, cr)
+        cleaned_recomputed = remove_cosmic_rays(pm, zeroed)
+        @test cleaned_cached.spectra == cleaned_recomputed.spectra
+        @test cleaned_cached.spectra[10, 3, 3] < 200.0
+
+        # (c) backward-compatible 4-argument constructor zero-fills msn_index
+        mask = falses(np, nx, ny)
+        mask[5, 2, 2] = true
+        compat = CosmicRayMapResult(mask, 1, 1, zeros(Int, np))
+        @test compat.msn_index == zeros(Int, nx, ny)
+    end
+
     @testset "#18 svd_filter: truncated reconstruction matches full" begin
         rng = MersenneTwister(10)
         time = collect(0.0:1.0:40.0)

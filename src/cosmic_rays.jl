@@ -44,12 +44,27 @@ Result of cosmic ray detection on a PLMap.
 - `count::Int` — total flagged voxels
 - `affected_spectra::Int` — number of spectra with at least one cosmic ray
 - `channel_counts::Vector{Int}` — cosmic ray count per spectral channel
+- `msn_index::Matrix{Int}` — `(nx, ny)` Most Similar Neighbor cache from
+  detection: for each pixel, the position of its MSN in the 4-connected
+  neighbor list (`0` = no neighbors/unknown). Reused by
+  [`remove_cosmic_rays`](@ref) to skip recomputing Pearson correlations.
+  The cache reflects the detection `pixel_range` window.
+
+The convenience constructor `CosmicRayMapResult(mask, count, affected_spectra,
+channel_counts)` zero-fills `msn_index`, so removal recomputes the MSN.
 """
 struct CosmicRayMapResult
     mask::BitArray{3}
     count::Int
     affected_spectra::Int
     channel_counts::Vector{Int}
+    msn_index::Matrix{Int}
+end
+
+function CosmicRayMapResult(mask::BitArray{3}, count::Integer,
+                            affected_spectra::Integer, channel_counts::Vector{Int})
+    return CosmicRayMapResult(mask, count, affected_spectra, channel_counts,
+                              zeros(Int, size(mask, 2), size(mask, 3)))
 end
 
 # =============================================================================
@@ -469,7 +484,7 @@ function detect_cosmic_rays(m::PLMap; threshold::Real=5.0,
         channel_counts[k] = count(@view mask[k, :, :])
     end
 
-    return CosmicRayMapResult(mask, total, affected, channel_counts)
+    return CosmicRayMapResult(mask, total, affected, channel_counts, msn_idx)
 end
 
 """
@@ -481,8 +496,13 @@ Pass the same `pixel_range` used for detection so the MSN scale factor is
 computed over the same channel window; it defaults to the `pixel_range` in
 `m.metadata` (or the full spectrum) exactly like detection.
 
-For each affected pixel, finds the 4-connected neighbor with the highest Pearson
-correlation (the MSN). A scale factor is computed from non-flagged channels to match
+For each affected pixel, uses the 4-connected neighbor with the highest Pearson
+correlation (the MSN). The MSN index cached in `result.msn_index` at detection
+time is reused directly — the correlations are only recomputed for pixels where
+the cache is `0` (unknown). The cache reflects the detection `pixel_range`
+window: calling removal with a different `pixel_range` than detection keeps the
+detection-time neighbor choice rather than re-ranking within the new window.
+A scale factor is computed from non-flagged channels to match
 the pixel's intensity level. Flagged channels are then replaced with `scale × MSN[k]`.
 This preserves the pixel's overall intensity while removing only the spike shape,
 avoiding the dark-patch artifacts that raw neighbor median replacement produces.
@@ -534,7 +554,12 @@ function remove_cosmic_rays(m::PLMap, result::CosmicRayMapResult;
         end
 
         signal = @view pixel_view(m, ix, iy)[p1:p2]
-        best_idx, _ = _most_similar_neighbor(signal, neighbors)
+        # Reuse the MSN index cached at detection; recompute only when the
+        # cache is empty (0) or unusable for this pixel's neighbor list.
+        cached = checkbounds(Bool, result.msn_index, ix, iy) ?
+                 result.msn_index[ix, iy] : 0
+        best_idx = 1 <= cached <= length(neighbors) ? cached :
+                   first(_most_similar_neighbor(signal, neighbors))
         msn = neighbors[best_idx]
 
         # Compute scale factor from non-flagged channels so the replacement
