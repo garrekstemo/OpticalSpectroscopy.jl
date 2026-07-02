@@ -6,7 +6,10 @@ on:
       - main
     tags: '*'
   pull_request:
-    paths: ['docs/**', 'src/**']
+    # Project.toml and this workflow are included so the required `build`
+    # check can report on dependency-only PRs (e.g. dependabot compat bumps)
+    # — branch protection requires it, so a PR it never runs on can't merge.
+    paths: ['docs/**', 'src/**', 'Project.toml', '.github/workflows/Documentation.yml']
 
 jobs:
   build:
