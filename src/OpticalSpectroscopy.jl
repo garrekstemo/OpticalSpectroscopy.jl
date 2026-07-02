@@ -3,8 +3,6 @@ OpticalSpectroscopy.jl — General-purpose spectroscopy analysis toolkit.
 
 Provides data types, fitting routines, baseline correction, peak detection,
 unit conversions, and utility functions for spectroscopic data analysis.
-
-Extracted from QPS.jl to serve as a standalone, reusable foundation.
 """
 module OpticalSpectroscopy
 

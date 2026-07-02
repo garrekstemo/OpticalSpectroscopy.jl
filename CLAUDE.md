@@ -18,7 +18,7 @@ Interface contract — every `AbstractSpectroscopyData` type implements: `xdata`
 
 Provenance/annotated spectrum types (sample-tagged FTIR/Raman/UV-Vis wrappers) do **NOT** belong here — the lab layer (QPSTools.jl) attaches provenance to a plain `Spectrum` via metadata tokens rather than defining a wrapper type. Do not add an `AnnotatedSpectrum`-style type to this package. (The former QPSTools `AnnotatedSpectrum`/`CavitySpectrum` wrappers were deleted in the token re-architecture; QPSTools now uses `Spectrum` + tokens directly.)
 
-Metadata tokens: every axis is a `(quantity, unit)` pair of `Symbol` tokens; display labels are *derived* from tokens, never stored as prose or guessed from data magnitudes. See `docs/superpowers/2026-06-15-metadata-token-contract.md`.
+Metadata tokens: every axis is a `(quantity, unit)` pair of `Symbol` tokens; display labels are *derived* from tokens, never stored as prose or guessed from data magnitudes. See `docs/dev/metadata-token-contract.md`.
 
 ## Cavity / polaritons (`src/cavity.jl`)
 
