@@ -1752,6 +1752,129 @@ Random.seed!(42)
             @test all(corrected.data .== 0.0)
         end
 
+        @testset "_xcorr_peak reports unmeasurable lags instead of the search bound" begin
+            t = collect(0.0:1.0:199.0)
+            pulse(t0) = @. exp(-((t - t0)^2) / (2 * 8.0^2))
+            ref = pulse(60.0)
+
+            # A shift well inside the search window is still measured.
+            @test isapprox(OpticalSpectroscopy._xcorr_peak(ref, pulse(64.0), 30), 4.0; atol=0.05)
+
+            # A shift beyond max_lag used to come back pinned to ±max_lag, which
+            # reads as a large, confident measurement. It must be `nothing`.
+            @test OpticalSpectroscopy._xcorr_peak(ref, pulse(60.0 + 25.0), 5) === nothing
+            @test OpticalSpectroscopy._xcorr_peak(ref, pulse(60.0 - 25.0), 5) === nothing
+
+            # A flat trace carries no timing information: not a lag of zero.
+            @test OpticalSpectroscopy._xcorr_peak(ref, zeros(length(t)), 30) === nothing
+            @test OpticalSpectroscopy._xcorr_peak(zeros(length(t)), ref, 30) === nothing
+        end
+
+        @testset "detect_chirp drops railed bins rather than fitting them" begin
+            n_time = 200
+            n_wl = 60
+            time = collect(range(-5.0, 15.0, length=n_time))
+            wavelength = collect(range(500.0, 700.0, length=n_wl))
+            dt = time[2] - time[1]
+
+            ref_λ = 600.0
+            chirp_fn(λ) = 0.004 * (λ - ref_λ)
+
+            data = zeros(n_time, n_wl)
+            for j in eachindex(wavelength)
+                t_onset = chirp_fn(wavelength[j])
+                for i in eachindex(time)
+                    if time[i] > t_onset
+                        data[i, j] = 0.5 * exp(-(time[i] - t_onset) / 3.0)
+                    end
+                end
+            end
+
+            # Give the four bluest columns a strong onset 2.5 ps before the pump
+            # — a scatter artifact. They clear min_signal, but their true lag
+            # (−25 samples) sits just outside the ±max_lag = ±18 window, so the
+            # correlation still slopes toward the bound and peaks on it. The
+            # margin matters: push the artifact much further out and the
+            # correlation goes flat, leaving argmax somewhere arbitrary but
+            # in-range instead.
+            for j in 1:4, i in eachindex(time)
+                data[i, j] = time[i] > -2.5 ? 0.5 * exp(-(time[i] + 2.5) / 3.0) : 0.0
+            end
+
+            # max_lag as _detect_chirp_xcorr derives it, so the bound is exact.
+            avg_abs = vec(mean(abs.(data), dims=2))
+            window_end = min(n_time, argmax(avg_abs) + max(1, n_time ÷ 10))
+            rail = (window_end ÷ 4) * dt
+
+            wl_out, offs, n_unmeasurable =
+                OpticalSpectroscopy._detect_chirp_xcorr(time, wavelength, data, 7, 2, 0.2)
+
+            # The artifact bins are discarded, not reported at ∓max_lag.
+            @test n_unmeasurable >= 2
+            @test length(wl_out) == length(offs)
+            @test all(o -> abs(o) < rail, offs)
+
+            # The surviving bins still recover the real chirp.
+            cal = detect_chirp(TimeResolvedMatrix(time, wavelength, data);
+                               order=2, reference=ref_λ, smooth_window=7, bin_width=2)
+            @test cal.metadata[:n_unmeasurable] >= 2
+            @test cal.r_squared > 0.8
+        end
+
+        @testset "degenerate detection reports R² undefined, not 1.0" begin
+            # Every bin identical => ss_tot == 0 => R² is 0/0. Reached here the
+            # way real data reaches it: :threshold on a matrix that still carries
+            # its pre-pump background crosses at the first sample in every bin.
+            n_time = 60
+            n_wl = 40
+            time = collect(range(-5.0, 15.0, length=n_time))
+            wavelength = collect(range(500.0, 700.0, length=n_wl))
+
+            # Large constant background + a small chirped rise on top.
+            data = fill(10.0, n_time, n_wl)
+            for j in eachindex(wavelength), i in eachindex(time)
+                if time[i] > 0.004 * (wavelength[j] - 600.0)
+                    data[i, j] += 0.05
+                end
+            end
+            matrix = TimeResolvedMatrix(time, wavelength, data)
+
+            cal = @test_logs (:warn,) match_mode = :any begin
+                detect_chirp(matrix; method=:threshold, order=1, bin_width=4)
+            end
+            @test isnan(cal.r_squared)  # was 1.0: a perfect score for total failure
+            @test maximum(cal.time_offset) - minimum(cal.time_offset) == 0.0
+
+            # An undefined R² must survive a save/load round-trip (JSON has no
+            # NaN literal, so it goes out as null).
+            path = joinpath(mktempdir(), "degenerate.json")
+            save_chirp(path, cal)
+            @test isnan(load_chirp(path).r_squared)
+
+            # Removing the background is what the warning advises, and it works.
+            cal2 = detect_chirp(subtract_background(matrix); method=:threshold,
+                                order=1, bin_width=4)
+            @test !isnan(cal2.r_squared)
+        end
+
+        @testset "chirp-free data still calibrates (flat, R² undefined)" begin
+            # Identical columns: no chirp to find. This is a legitimate input --
+            # the right answer is a flat, no-op calibration, not an error.
+            n_time = 200
+            n_wl = 40
+            time = collect(range(-5.0, 15.0, length=n_time))
+            wavelength = collect(range(500.0, 700.0, length=n_wl))
+            data = [t > 0 ? 0.5 * exp(-t / 3.0) : 0.0 for t in time, _ in wavelength]
+
+            cal = @test_logs (:warn,) match_mode = :any begin
+                detect_chirp(TimeResolvedMatrix(time, wavelength, data);
+                             order=1, bin_width=4)
+            end
+            @test cal isa ChirpCalibration
+            @test isnan(cal.r_squared)
+            @test all(o -> abs(o) < 1e-9, cal.time_offset)  # flat: a no-op correction
+        end
+
         @testset "detect_chirp :threshold method" begin
             n_time = 200
             n_wl = 80

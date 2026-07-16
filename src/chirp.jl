@@ -20,8 +20,17 @@ and detection parameters for reproducibility.
 - `poly_coeffs`: Polynomial fit coefficients (constant term first, ascending order)
 - `poly_order`: Polynomial order used
 - `reference_λ`: Reference wavelength where chirp = 0 (nm)
-- `r_squared`: Polynomial fit quality
+- `r_squared`: How well the polynomial fits the points that were *detected*
 - `metadata`: Detection parameters for reproducibility
+
+!!! warning "R² does not measure detection accuracy"
+    `r_squared` says only that a polynomial describes the detected points; it is
+    silent on whether those points are the real chirp. Because R² is normalised
+    by the variance of the points being fitted, a handful of extreme values pull
+    it *up* — a curve bending to chase them scores well precisely because they
+    are extreme. Judge detection by whether the offsets are resolvable (spread
+    across several time steps, no pile-up at the search bound: see
+    `metadata[:n_unmeasurable]`), not by R² alone.
 """
 struct ChirpCalibration
     wavelength::Vector{Float64}
@@ -162,9 +171,17 @@ function detect_chirp(matrix::TimeResolvedMatrix;
     end
 
     # Detect chirp points using selected method
+    n_unmeasurable = 0
     if method === :xcorr
-        binned_wl, binned_chirp_times = _detect_chirp_xcorr(
+        binned_wl, binned_chirp_times, n_unmeasurable = _detect_chirp_xcorr(
             time, wavelength, data, smooth_window, bin_width, min_signal)
+        if n_unmeasurable > 0
+            n_tried = n_unmeasurable + length(binned_wl)
+            @warn "Discarded $n_unmeasurable of $n_tried wavelength bins with no measurable " *
+                  "shift (correlation peak on the ±max_lag search bound, or a flat trace). " *
+                  "A large fraction usually means the time axis is too coarse to resolve " *
+                  "the chirp, or the spectral edges are noise-dominated."
+        end
     elseif method === :threshold
         if isnothing(t_range)
             t_range = (time[1], time[end])
@@ -191,7 +208,8 @@ function detect_chirp(matrix::TimeResolvedMatrix;
         :min_signal => min_signal,
         :n_points_raw => length(binned_wl),
         :n_points_clean => length(clean_wl),
-        :n_outliers => length(binned_wl) - length(clean_wl)
+        :n_outliers => length(binned_wl) - length(clean_wl),
+        :n_unmeasurable => n_unmeasurable
     )
 
     if method === :threshold
@@ -212,6 +230,9 @@ mixed spectral regions. Parabolic interpolation gives sub-time-step precision.
 
 Only the onset region is used (from data start to just past the signal peak)
 to prevent later dynamics from dominating.
+
+Bins whose lag is unmeasurable (see [`_xcorr_peak`](@ref)) are dropped rather
+than fitted. Returns `(wavelengths, offsets, n_unmeasurable)`.
 """
 function _detect_chirp_xcorr(time, wavelength, data, smooth_window, bin_width, min_signal)
     n_time, n_wl = size(data)
@@ -256,6 +277,7 @@ function _detect_chirp_xcorr(time, wavelength, data, smooth_window, bin_width, m
     max_lag = length(w_indices) ÷ 4
     valid_wl = Float64[]
     offsets = Float64[]
+    n_unmeasurable = 0
 
     for b in 1:n_bins
         if bin_strength[b] < min_signal * global_max
@@ -263,17 +285,32 @@ function _detect_chirp_xcorr(time, wavelength, data, smooth_window, bin_width, m
         end
 
         lag = _xcorr_peak(ref_grad, binned_grads[b], max_lag)
+        if isnothing(lag)
+            n_unmeasurable += 1
+            continue
+        end
 
         push!(valid_wl, binned_wl[b])
         push!(offsets, lag * dt)
     end
 
-    return valid_wl, offsets
+    return valid_wl, offsets, n_unmeasurable
 end
 
 """
-Compute the lag (with sub-sample parabolic interpolation) that maximizes
-the absolute normalized cross-correlation between `ref` and `col`.
+Compute the lag (with sub-sample parabolic interpolation) that maximizes the
+absolute normalized cross-correlation between `ref` and `col`, or `nothing` when
+no lag is measurable.
+
+`nothing` is distinct from a measured lag of zero, and arises two ways:
+
+- one of the traces is flat, so every lag correlates equally badly; or
+- the correlation peak sits on the ±`max_lag` boundary, meaning the true peak
+  lies outside the searched range or the correlation is noise.
+
+Returning the boundary instead would pass the search limit off as a measurement.
+Being by construction an extreme value, it then survives MAD rejection (the fit
+bends toward it, shrinking its residual) and inflates R².
 """
 function _xcorr_peak(ref, col, max_lag)
     n = length(ref)
@@ -283,7 +320,7 @@ function _xcorr_peak(ref, col, max_lag)
     col_m = col .- mean(col)
 
     if sum(abs2, ref_m) < eps() || sum(abs2, col_m) < eps()
-        return 0.0
+        return nothing
     end
 
     # Per-lag energy-normalized cross-correlation over the overlap window.
@@ -311,20 +348,23 @@ function _xcorr_peak(ref, col, max_lag)
     # Find peak of |correlation|
     abs_corr = abs.(corr)
     peak_i = argmax(abs_corr)
+
+    # Peak pinned to either end of the lag window: unmeasurable, not a lag of
+    # ±max_lag. This also leaves the interpolation below with both neighbours.
+    (peak_i == 1 || peak_i == n_lags) && return nothing
+
     best_lag = peak_i - max_lag - 1
 
     # Parabolic interpolation for sub-sample precision: the vertex of the
     # parabola through (−1, y_m), (0, y₀), (+1, y_p) sits at
     # (y_p − y_m) / (2(2y₀ − y_m − y_p)).
-    if peak_i > 1 && peak_i < n_lags
-        y_m = abs_corr[peak_i - 1]
-        y_0 = abs_corr[peak_i]
-        y_p = abs_corr[peak_i + 1]
-        denom = 2 * (2 * y_0 - y_m - y_p)
-        if abs(denom) > eps()
-            delta = (y_p - y_m) / denom
-            return best_lag + delta
-        end
+    y_m = abs_corr[peak_i - 1]
+    y_0 = abs_corr[peak_i]
+    y_p = abs_corr[peak_i + 1]
+    denom = 2 * (2 * y_0 - y_m - y_p)
+    if abs(denom) > eps()
+        delta = (y_p - y_m) / denom
+        return best_lag + delta
     end
 
     return Float64(best_lag)
@@ -443,11 +483,24 @@ function _fit_chirp_polynomial(wl, times, order, threshold, ref_λ)
     coeffs[1] -= ref_shift
     clean_times = clean_times .- ref_shift
 
-    # Compute R²
+    # R². Zero ss_tot means every bin came back with the same offset: there is no
+    # wavelength-dependent timing to explain, so R² is 0/0 — undefined, not 1.
+    # Reporting a perfect fit here would flag the flattest possible result as the
+    # best one. NaN is the honest value and fails any `r2 > threshold` check.
+    # Both a chirp-free matrix and a total detection failure land here and are
+    # indistinguishable from ss_tot alone, so warn rather than throw.
     fitted = _polyeval(coeffs, clean_wl)
     ss_res = sum((clean_times .- fitted).^2)
     ss_tot = sum((clean_times .- mean(clean_times)).^2)
-    r2 = ss_tot > 0 ? 1.0 - ss_res / ss_tot : 1.0
+    if ss_tot <= 0
+        @warn "All $(length(clean_times)) wavelength bins returned the same time offset, " *
+              "so R² is undefined (0/0) and is reported as NaN. Either the data carries no " *
+              "chirp, or detection failed: with method=:threshold on a matrix that still " *
+              "has its pre-pump background, every bin crosses the threshold at the first " *
+              "sample. The calibration is flat, so correcting with it is a no-op."
+        return clean_wl, clean_times, coeffs, NaN
+    end
+    r2 = 1.0 - ss_res / ss_tot
 
     return clean_wl, clean_times, coeffs, r2
 end
@@ -531,7 +584,8 @@ function save_chirp(path::String, cal::ChirpCalibration)
         "poly_coeffs" => cal.poly_coeffs,
         "poly_order" => cal.poly_order,
         "reference_lambda" => cal.reference_λ,
-        "r_squared" => cal.r_squared,
+        # An undefined R² is NaN, which JSON has no literal for; `null` round-trips.
+        "r_squared" => isnan(cal.r_squared) ? nothing : cal.r_squared,
         "metadata" => Dict(string(k) => v for (k, v) in cal.metadata)
     )
     open(path, "w") do io
@@ -559,7 +613,7 @@ function load_chirp(path::String)
         Float64.(d["poly_coeffs"]),
         Int(d["poly_order"]),
         Float64(d["reference_lambda"]),
-        Float64(d["r_squared"]),
+        isnothing(d["r_squared"]) ? NaN : Float64(d["r_squared"]),
         metadata
     )
 end

@@ -68,7 +68,7 @@ This section walks through the standard workflow in detail.
 
 ### Step 1: Subtract the pre-pump background
 
-TA is already a difference measurement, so the signal before the pump arrives should be zero. Any residual offset is systematic background (detector dark current, scattered pump light, etc.). Subtracting it improves chirp detection by removing a constant bias.
+TA is already a difference measurement, so the signal before the pump arrives should be zero. Any residual offset is systematic background (detector dark current, scattered pump light, etc.). Subtracting it removes a constant bias that otherwise degrades detection --- and for `:threshold` it is effectively required: on a matrix that still carries its background, every bin crosses the half-maximum at the first sample, and detection collapses to a flat, useless calibration (`detect_chirp` warns and reports `R^2` as `NaN`).
 
 ```julia
 using OpticalSpectroscopy
@@ -111,13 +111,22 @@ Before trusting the calibration, check that the detected chirp points are sensib
 cal.wavelength     # detected wavelength points (nm)
 cal.time_offset    # detected time offset at each point (ps)
 cal.poly_coeffs    # polynomial coefficients (ascending order)
-cal.r_squared      # fit quality
+cal.r_squared      # how well the polynomial fits the detected points
+cal.metadata[:n_unmeasurable]  # bins discarded as having no measurable shift
 
 poly = polynomial(cal)  # callable: t_shift = poly(lambda)
 poly(500.0)             # chirp offset at 500 nm
 ```
 
-A good calibration has ``R^2 > 0.95`` and the detected points should scatter smoothly around the polynomial curve without systematic deviations. If points at the spectral edges look like outliers, the signal there may be too weak --- try lowering `min_signal` or increasing `bin_width`.
+**Do not judge the calibration by ``R^2``.** It measures only whether a polynomial describes the points that were detected, and says nothing about whether those points are the chirp. Because it is normalised by the variance of those points, a few extreme values push it *up*: a curve bending to chase them scores well precisely because they are extreme. A real 2048-pixel CCD scan scores ``R^2 = 0.96`` on a chirp that isn't there, and 0.27 once eleven junk bins are removed.
+
+Check these instead:
+
+- **Is the chirp resolvable at all?** Compare `maximum(cal.time_offset) - minimum(cal.time_offset)` against your delay step. Chirp across the visible is typically 1--3 ps, so a scan stepping coarser than a few hundred fs cannot see it, and whatever comes back is noise. This is a property of the measurement, not something a parameter can fix.
+- **How many bins were discarded?** `cal.metadata[:n_unmeasurable]` counts bins whose correlation peak hit the lag-search bound (`detect_chirp` also warns). A few at the spectral edges is normal; a large fraction means the time axis is too coarse or the edges are noise-dominated.
+- **Do the points scatter smoothly around the curve** without systematic deviation?
+
+If weak spectral edges are being dropped, raise `bin_width` to average more pixels per bin. Lowering `min_signal` admits those regions but makes detection noisier there --- it is not a way to rescue a scan that cannot resolve the chirp.
 
 ### Step 4: Apply the correction
 
