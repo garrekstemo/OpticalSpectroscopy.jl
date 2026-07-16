@@ -22,24 +22,19 @@ Metadata tokens: every axis is a `(quantity, unit)` pair of `Symbol` tokens; dis
 
 ## Cavity / polaritons (`src/cavity.jl`)
 
-Live API is vector-based: `polariton_branches(E_cav, E_vib, Omega)`, `hopfield_coefficients(E_cav, E_vib, Omega)`, `fit_cavity_spectrum(nu, T; ...)` with a `fit_cavity_spectrum(s::Spectrum; ...)` method dispatching on the generic `Spectrum`. This layer was merged in from the now-archived CavitySpectroscopy.jl (June 2026); the old `CavitySpectrum` type and `load_cavity` loader were NOT carried over. (Unrelated: the Variable-Rabi-Splitting-VSC-Project repo has its own local module also named `CavitySpectroscopy` — never conflate them.)
+Live API is vector-based (e.g. `fit_cavity_spectrum(nu, T)`), merged in from the now-archived CavitySpectroscopy.jl (June 2026); the old `CavitySpectrum` type and `load_cavity` loader were NOT carried over. (Unrelated: the Variable-Rabi-Splitting-VSC-Project repo has its own local module also named `CavitySpectroscopy` — never conflate them.)
 
 ## API conventions
 
 - **Dual interface**: functions accept typed spectroscopy data (preferred) or raw vectors.
-- **Model functions come from CurveFitModels.jl** — never define fitting functions inline.
 - **Fit results are structs** with `predict` / `residuals` / `report` accessors.
 - **Plotting (Makie weakdep ext)**: aesthetics-free, no themes here (themes are in QPSTools). Inline styling only for semantic distinction (e.g. fit vs data color).
 
 ## CurveFit.jl integration
 
-Extend `CurveFit.residuals`, `CurveFit.predict`, `CurveFit.fitted` for this package's fit-result types via `import CurveFit: residuals, predict, fitted` (not `using` — needed for method extension). CurveFit provides no R² — compute `1 - rss(sol) / ss_tot` yourself.
-
-## Source layout
-
-Entry point `src/OpticalSpectroscopy.jl`; browse `src/`. Baseline algorithms (`src/baseline.jl`): arPLS, SNIP, rubberband, iModPoly, rolling ball.
+CurveFit provides no R² — compute `1 - rss(sol) / ss_tot` yourself.
 
 ## Development
 
-- Version 0.1.0, not yet registered (first registers as 0.1).
+- `main` is branch-protected — push to a feature branch and open a PR.
 - Tests use synthetic data only — no local file dependencies.
