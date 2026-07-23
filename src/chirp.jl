@@ -2,7 +2,8 @@
 #
 # GVD causes different probe wavelengths to arrive at different times,
 # producing a diagonal "chirp" feature in the time-wavelength heatmap.
-# This module provides automatic detection and correction.
+# This module provides calibration from a dedicated OKE run (the standard
+# path), in-data detection (the fallback), and correction.
 
 # =============================================================================
 # ChirpCalibration type
@@ -448,7 +449,10 @@ end
 
 """
 Fit polynomial to chirp points with MAD-based outlier rejection.
-Returns (clean_wl, clean_times, coefficients, r_squared).
+Returns (clean_wl, clean_times, coefficients, r_squared, ref_shift, keep):
+`ref_shift` is the absolute polynomial value at `ref_λ` before the coefficients
+are normalized to zero there (callers store it as `:t0_at_reference`), and
+`keep` is the Boolean mask of input points that survived outlier rejection.
 """
 function _fit_chirp_polynomial(wl, times, order, threshold, ref_λ)
     length(wl) > order || throw(ArgumentError(
@@ -498,11 +502,245 @@ function _fit_chirp_polynomial(wl, times, order, threshold, ref_λ)
               "chirp, or detection failed: with method=:threshold on a matrix that still " *
               "has its pre-pump background, every bin crosses the threshold at the first " *
               "sample. The calibration is flat, so correcting with it is a no-op."
-        return clean_wl, clean_times, coeffs, NaN
+        return clean_wl, clean_times, coeffs, NaN, ref_shift, keep
     end
     r2 = 1.0 - ss_res / ss_tot
 
-    return clean_wl, clean_times, coeffs, r2
+    return clean_wl, clean_times, coeffs, r2, ref_shift, keep
+end
+
+# =============================================================================
+# Chirp calibration from a dedicated OKE cross-correlation run
+# =============================================================================
+
+"""
+    calibrate_chirp(oke::TimeResolvedMatrix; kwargs...) -> ChirpCalibration
+
+Measure a chirp calibration from a dedicated OKE (optical Kerr effect)
+cross-correlation run.
+
+The electronic Kerr response of a non-resonant medium is effectively
+instantaneous, so the per-wavelength peak of the pump–probe cross-correlation
+traces the true t₀(λ) independent of any sample dynamics. This makes an OKE
+run the standard source of chirp calibrations; use [`detect_chirp`](@ref),
+which infers the curve from a sample matrix's own signal onsets, only when no
+OKE run is available.
+
+For each wavelength column the peak position is located with `method`:
+
+- `:gaussian` (default): least-squares fit of a Gaussian with vertical offset,
+  `p = [A, t₀, σ, y₀]`. Also yields the per-wavelength IRF width σ (a standard
+  deviation, not a FWHM), stored in `metadata[:irf_sigma]`.
+- `:peak`: argmax plus parabolic sub-sample interpolation. Fast path for
+  high-SNR runs; provides no IRF widths.
+
+Columns whose peak-to-peak amplitude is below `min_amplitude` of the strongest
+column's, and columns whose per-column fit fails, are masked out. The surviving
+(λ, t₀) points are fitted with an order-`order` polynomial with MAD outlier
+rejection (shared with [`detect_chirp`](@ref)). The stored polynomial is
+normalized to zero at `reference_λ`; the absolute overlap time there is kept in
+`metadata[:t0_at_reference]`.
+
+# Keywords
+- `method::Symbol = :gaussian` — `:gaussian` or `:peak` (see above)
+- `order::Int = 3` — chirp polynomial order
+- `reference = :center` — wavelength (nm) where the polynomial is zero;
+  `:center` uses the midpoint of the surviving wavelength coverage
+- `wl_range = nothing` — `(λmin, λmax)`: restrict which columns are considered
+- `t_range = nothing` — `(tmin, tmax)`: restrict the per-column fit window
+- `min_amplitude::Real = 0.05` — amplitude mask threshold as a fraction of the
+  strongest column's peak-to-peak amplitude; `0` disables the mask
+- `source = nothing` — provenance string stored as `metadata[:source_file]`;
+  defaults to the OKE matrix's own `metadata[:source]` when present
+
+# Metadata
+The returned calibration's `metadata` carries provenance and fit bookkeeping:
+`:source => :oke`, `:source_file`, `:lambda_range` (the kept wavelength
+coverage — [`correct_chirp`](@ref) clamps its polynomial evaluation to this
+window), `:t0_at_reference`, `:irf_sigma` (`:gaussian` only, aligned with
+`cal.wavelength`), plus `:method`, `:order`, `:mad_threshold`, point counts,
+and the `wl_range`/`t_range` restrictions when given.
+
+# Examples
+```julia
+oke = ...  # TimeResolvedMatrix from the OKE run (solvent/glass at sample position)
+cal = calibrate_chirp(oke)
+corrected = correct_chirp(sample_matrix, cal)
+```
+"""
+function calibrate_chirp(oke::TimeResolvedMatrix;
+    method::Symbol=:gaussian,
+    order::Int=3,
+    reference::Union{Real,Symbol}=:center,
+    wl_range::Union{Tuple,Nothing}=nothing,
+    t_range::Union{Tuple,Nothing}=nothing,
+    min_amplitude::Real=0.05,
+    source::Union{AbstractString,Nothing}=nothing)
+
+    method in (:gaussian, :peak) || throw(ArgumentError(
+        "Unknown calibration method: :$method. Use :gaussian or :peak."))
+    order >= 1 || throw(ArgumentError("order must be >= 1, got $order"))
+    0 <= min_amplitude < 1 || throw(ArgumentError(
+        "min_amplitude must be in [0, 1), got $min_amplitude"))
+    if !isnothing(wl_range)
+        wl_range[1] < wl_range[2] || throw(ArgumentError(
+            "wl_range must be ordered (λmin, λmax), got $wl_range"))
+    end
+    if !isnothing(t_range)
+        t_range[1] < t_range[2] || throw(ArgumentError(
+            "t_range must be ordered (tmin, tmax), got $t_range"))
+    end
+    if reference !== :center && !(reference isa Real)
+        throw(ArgumentError(
+            "reference must be :center or a wavelength in nm, got $reference"))
+    end
+
+    time = oke.time
+    wavelength = oke.wavelength
+    data = oke.data
+
+    col_idx = isnothing(wl_range) ? collect(eachindex(wavelength)) :
+        findall(λ -> wl_range[1] <= λ <= wl_range[2], wavelength)
+    isempty(col_idx) && throw(ArgumentError(
+        "wl_range $wl_range contains no wavelength columns " *
+        "(axis spans $(extrema(wavelength)))"))
+
+    row_idx = isnothing(t_range) ? collect(eachindex(time)) :
+        findall(t -> t_range[1] <= t <= t_range[2], time)
+    length(row_idx) >= 4 || throw(ArgumentError(
+        "the" * (isnothing(t_range) ? " " : " t_range $t_range ") *
+        "fit window contains only $(length(row_idx)) time samples; " *
+        "need at least 4 to locate a peak"))
+
+    t_win = time[row_idx]
+    span = t_win[end] - t_win[1]
+
+    # Peak-to-peak amplitude per column: polarity- and offset-independent
+    amps = [let col = @view(data[row_idx, j])
+                maximum(col) - minimum(col)
+            end for j in col_idx]
+    amp_max = maximum(amps)
+    amp_max > 0 || throw(ArgumentError(
+        "OKE matrix is flat over the selected window; no cross-correlation peaks to calibrate on"))
+    strong = amps .>= min_amplitude * amp_max
+
+    kept_wl = Float64[]
+    kept_t0 = Float64[]
+    kept_sigma = Float64[]
+    n_failed = 0
+
+    for (k, j) in enumerate(col_idx)
+        strong[k] || continue
+        col = data[row_idx, j]
+        result = method === :gaussian ? _oke_gaussian_t0(t_win, col, span) :
+                                        _oke_peak_t0(t_win, col)
+        if isnothing(result)
+            n_failed += 1
+            continue
+        end
+        t0, σ = result
+        push!(kept_wl, wavelength[j])
+        push!(kept_t0, t0)
+        method === :gaussian && push!(kept_sigma, σ)
+    end
+
+    n_kept = length(kept_wl)
+    n_kept >= order + 2 || throw(ArgumentError(
+        "Only $n_kept of $(length(col_idx)) wavelength columns survived amplitude " *
+        "masking ($(count(!, strong)) weak) and per-column peak fitting ($n_failed " *
+        "failed); need at least $(order + 2) for an order-$order chirp polynomial. " *
+        "Lower min_amplitude or order, or widen wl_range/t_range."))
+
+    ref_λ = reference === :center ? (minimum(kept_wl) + maximum(kept_wl)) / 2 :
+                                    Float64(reference)
+
+    clean_wl, clean_times, coeffs, r2, ref_shift, keep = _fit_chirp_polynomial(
+        kept_wl, kept_t0, order, 3.0, ref_λ)
+
+    src = isnothing(source) ? string(get(oke.metadata, :source, "")) : String(source)
+
+    metadata = Dict{Symbol,Any}(
+        :source => :oke,
+        :source_file => src,
+        :method => method,
+        :order => order,
+        :min_amplitude => min_amplitude,
+        :mad_threshold => 3.0,
+        :lambda_range => (minimum(clean_wl), maximum(clean_wl)),
+        :t0_at_reference => ref_shift,
+        :n_columns => length(col_idx),
+        :n_weak => count(!, strong),
+        :n_fit_failed => n_failed,
+        :n_points_raw => n_kept,
+        :n_points_clean => length(clean_wl),
+        :n_outliers => n_kept - length(clean_wl),
+    )
+    isnothing(wl_range) || (metadata[:wl_range] = wl_range)
+    isnothing(t_range) || (metadata[:t_range] = t_range)
+    method === :gaussian && (metadata[:irf_sigma] = kept_sigma[keep])
+
+    return ChirpCalibration(clean_wl, clean_times, coeffs, order, ref_λ, r2, metadata)
+end
+
+"""
+Locate the cross-correlation peak in one OKE column by fitting a Gaussian with
+offset, `p = [A, t₀, σ, y₀]`. Returns `(t₀, σ)` with σ a standard deviation,
+or `nothing` when the fit fails or lands outside the fitted window (a center
+off the data is a runaway on a noise column, not a measurement — the same
+refuse-to-guess rule as [`_xcorr_peak`](@ref)).
+"""
+function _oke_gaussian_t0(t, col, span)
+    y0_init = median(col)
+    dev = col .- y0_init
+    i_pk = argmax(abs.(dev))
+    A_init = dev[i_pk]
+    A_init == 0 && return nothing
+    dt_mean = span / (length(t) - 1)
+    n_half = count(d -> abs(d) >= abs(A_init) / 2, dev)
+    σ_init = max(n_half * dt_mean / FWHM_FACTOR, dt_mean)
+
+    sol = try
+        solve(NonlinearCurveFitProblem(gaussian, [A_init, t[i_pk], σ_init, y0_init], t, col))
+    catch
+        return nothing
+    end
+    isconverged(sol) || return nothing
+
+    A, t0, σ, _ = coef(sol)
+    σ = abs(σ)  # the model only uses σ², so the sign is unconstrained
+    all(isfinite, (A, t0, σ)) || return nothing
+    t[1] <= t0 <= t[end] || return nothing
+    0 < σ <= span || return nothing
+    return (t0, σ)
+end
+
+"""
+Locate the cross-correlation peak in one OKE column as the argmax of the
+offset-corrected absolute signal, refined by parabolic interpolation through
+the three samples around it (the technique [`_xcorr_peak`](@ref) uses on the
+correlation function). Returns `(t₀, NaN)` — no width estimate — or `nothing`
+when the peak sits on the window edge, where the true maximum may lie outside.
+"""
+function _oke_peak_t0(t, col)
+    a = abs.(col .- median(col))
+    i = argmax(a)
+    (i == firstindex(a) || i == lastindex(a)) && return nothing
+    t0 = _parabolic_vertex(t[i-1], t[i], t[i+1], a[i-1], a[i], a[i+1])
+    return (t0, NaN)
+end
+
+"""
+Vertex x-position of the parabola through three points. Works on arbitrary
+(non-uniform) x spacing; falls back to `x2` when the points are collinear.
+When `y2` is a strict local maximum the vertex lies inside `(x1, x3)`.
+"""
+function _parabolic_vertex(x1, x2, x3, y1, y2, y3)
+    denom = y1 * (x2 - x3) + y2 * (x3 - x1) + y3 * (x1 - x2)
+    abs(denom) <= eps(max(abs(y1), abs(y2), abs(y3), 1.0)) && return x2
+    num = y1 * (x2^2 - x3^2) + y2 * (x3^2 - x1^2) + y3 * (x1^2 - x2^2)
+    # With y2 the max of the three, the vertex lies in [x1, x3] exactly; the
+    # clamp only absorbs floating-point noise in near-degenerate triples.
+    return clamp(num / (2 * denom), min(x1, x3), max(x1, x3))
 end
 
 # =============================================================================
@@ -530,6 +768,18 @@ Apply chirp correction by interpolating each wavelength column onto its
 B-splines on a uniform time axis; for a non-uniform axis it falls back to
 gridded-linear interpolation against the actual sample times (cubic B-splines
 require evenly-spaced knots) so the correction stays quantitatively correct.
+
+Shifted samples that fall outside a column's measured time range are `NaN`:
+no data was recorded there, and extrapolated values would masquerade as
+signal. Keep the acquisition window generous around t₀ so the correction
+doesn't push wavelengths of interest off the edge.
+
+When the calibration carries `metadata[:lambda_range]` — set by
+[`calibrate_chirp`](@ref) to its measured wavelength coverage — the shift
+polynomial is evaluated at `clamp(λ, λmin, λmax)`: outside the measured window
+the shift is held flat at the endpoint value instead of extrapolating the
+polynomial into wavelengths it never saw. Calibrations from
+[`detect_chirp`](@ref) don't set the key and are evaluated everywhere.
 """
 function correct_chirp(matrix::TimeResolvedMatrix, cal::ChirpCalibration)
     time = matrix.time
@@ -538,21 +788,34 @@ function correct_chirp(matrix::TimeResolvedMatrix, cal::ChirpCalibration)
     n_time, n_wl = size(data)
 
     poly = polynomial(cal)
+
+    # Clamp evaluation to the calibration's measured wavelength coverage when
+    # it records one (OKE runs are run-specific: a calibration measured on one
+    # spectrograph window may be applied to a matrix that extends past it).
+    lr = get(cal.metadata, :lambda_range, nothing)
+    shift_at = if isnothing(lr)
+        poly
+    else
+        λ_lo, λ_hi = minmax(Float64(first(lr)), Float64(last(lr)))
+        λ -> poly(clamp(λ, λ_lo, λ_hi))
+    end
+
     corrected = similar(data)
 
     uniform = _is_uniform(time)
     t_grid = range(time[1], time[end], length=n_time)
 
     for j in eachindex(wavelength)
-        t_shift = poly(wavelength[j])
+        t_shift = shift_at(wavelength[j])
 
         # Interpolate this column, then read it at the shifted sample times.
+        # Out-of-domain samples fill with NaN, never extrapolated values.
         col = @view data[:, j]
         if uniform
             itp = interpolate(col, BSpline(Cubic(Line(OnGrid()))))
-            eitp = extrapolate(scale(itp, t_grid), Flat())
+            eitp = extrapolate(scale(itp, t_grid), NaN)
         else
-            eitp = extrapolate(interpolate((time,), col, Gridded(Linear())), Flat())
+            eitp = extrapolate(interpolate((time,), col, Gridded(Linear())), NaN)
         end
 
         # Evaluate at shifted time points (t + t_shift) inline, no allocation

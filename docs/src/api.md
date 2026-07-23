@@ -88,6 +88,7 @@ plot_fit
 
 ```@docs
 ChirpCalibration
+calibrate_chirp
 detect_chirp
 correct_chirp
 polynomial
