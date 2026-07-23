@@ -55,7 +55,7 @@ decay_time_to_linewidth(1.0u"ps")
 | **Exponential decay** | Single/multi-exponential with optional IRF convolution |
 | **Global fitting** | Shared parameters across traces, decay-associated spectra |
 | **TA spectrum fitting** | N-peak model with ESA/GSB/SE labels and sign convention |
-| **Chirp correction** | GVD detection (cross-correlation, threshold) and correction for broadband TA |
+| **Chirp correction** | OKE-based calibration, in-data GVD detection (cross-correlation, threshold), and correction for broadband TA |
 | **SVD filtering** | Matrix denoising for broadband TA data |
 | **Peak fitting** | Gaussian, Lorentzian, Voigt, Pseudo-Voigt, Fano via [CurveFit.jl](https://github.com/SciML/CurveFit.jl) |
 | **Peak detection** | Automatic peak finding with prominence filtering |
@@ -93,7 +93,7 @@ The shared algorithmic primitives — peak fitting, baseline correction, smoothi
 
 [Spectra.jl](https://github.com/charlesll/Spectra.jl) is an array-based toolkit for steady-state Raman/IR processing: plain `x`/`y` arrays through baseline correction, smoothing, and peak fitting, plus Raman-specific corrections (Long/Galeener/Hehlen temperature-excitation corrections, diamond anvil cell utilities).
 
-OpticalSpectroscopy.jl instead provides **typed data structures** (`Spectrum`, `KineticTrace`, `TimeResolvedMatrix`, `PLMap`) for TA/PL/FTIR data with semantic indexing (`matrix[λ=800]`, `matrix[t=1.0]`), and an **integrated transient-absorption pipeline** — chirp detection and correction for broadband pump-probe data, SVD filtering, and IRF-convolved exponential and global fitting with decay-associated spectra — which no registered Julia package offers. The steady-state primitives are the shared foundation; the ultrafast and mapping workflows are the differentiator. The two packages are complementary and coexist in one session.
+OpticalSpectroscopy.jl instead provides **typed data structures** (`Spectrum`, `KineticTrace`, `TimeResolvedMatrix`, `PLMap`) for TA/PL/FTIR data with semantic indexing (`matrix[λ=800]`, `matrix[t=1.0]`), and an **integrated transient-absorption pipeline** — chirp calibration (from an OKE run), detection, and correction for broadband pump-probe data, SVD filtering, and IRF-convolved exponential and global fitting with decay-associated spectra — which no registered Julia package offers. The steady-state primitives are the shared foundation; the ultrafast and mapping workflows are the differentiator. The two packages are complementary and coexist in one session.
 
 ## Related packages
 

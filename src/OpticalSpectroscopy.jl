@@ -97,7 +97,7 @@ export fit_cavity_spectrum, fit_dispersion
 # ==========================================================================
 # Exports — Chirp correction
 # ==========================================================================
-export ChirpCalibration, detect_chirp, correct_chirp, subtract_background
+export ChirpCalibration, calibrate_chirp, detect_chirp, correct_chirp, subtract_background
 export save_chirp, load_chirp
 export svd_filter, singular_values, estimate_n_components
 

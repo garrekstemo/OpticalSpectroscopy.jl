@@ -1651,8 +1651,10 @@ Random.seed!(42)
             @test size(corrected.data) == size(matrix.data)
             @test corrected.metadata[:chirp_corrected] == true
 
+            # Samples shifted outside a column's time range are NaN, so peak
+            # finding must ignore them (NaN sorts as the maximum in argmax)
             inner = n_wl ÷ 4 : 3 * n_wl ÷ 4
-            peak_times = [time[argmax(corrected.data[:, j])] for j in inner]
+            peak_times = [time[argmax(replace(corrected.data[:, j], NaN => -Inf))] for j in inner]
             @test std(peak_times) < 1.0
         end
 
@@ -1683,7 +1685,7 @@ Random.seed!(42)
             corrected = correct_chirp(matrix, cal)
             @test size(corrected.data) == size(matrix.data)
             inner = n_wl ÷ 4 : 3 * n_wl ÷ 4
-            peak_times = [time[argmax(corrected.data[:, j])] for j in inner]
+            peak_times = [time[argmax(replace(corrected.data[:, j], NaN => -Inf))] for j in inner]
             @test std(peak_times) < 1.0
         end
 
@@ -1731,6 +1733,7 @@ Random.seed!(42)
 
         @testset "Chirp exports available" begin
             @test isdefined(OpticalSpectroscopy, :ChirpCalibration)
+            @test isdefined(OpticalSpectroscopy, :calibrate_chirp)
             @test isdefined(OpticalSpectroscopy, :detect_chirp)
             @test isdefined(OpticalSpectroscopy, :correct_chirp)
             @test isdefined(OpticalSpectroscopy, :subtract_background)
@@ -2033,7 +2036,7 @@ Random.seed!(42)
 
             corrected = correct_chirp(matrix, cal)
             inner = n_wl ÷ 4 : 3 * n_wl ÷ 4
-            peak_times = [time[argmax(corrected.data[:, j])] for j in inner]
+            peak_times = [time[argmax(replace(corrected.data[:, j], NaN => -Inf))] for j in inner]
             @test std(peak_times) < 0.3
         end
 
@@ -2066,7 +2069,7 @@ Random.seed!(42)
             # After correction, onset times should be more aligned
             inner_wl = 20:60
             peak_times_before = [time[argmax(abs.(data[:, j]))] for j in inner_wl]
-            peak_times_after = [time[argmax(abs.(corrected.data[:, j]))] for j in inner_wl]
+            peak_times_after = [time[argmax(replace(abs.(corrected.data[:, j]), NaN => -Inf))] for j in inner_wl]
             @test std(peak_times_after) < std(peak_times_before)
         end
 
@@ -2125,6 +2128,212 @@ Random.seed!(42)
 
             @test haskey(cal.metadata, :mad_threshold)
             @test !haskey(cal.metadata, :threshold)
+        end
+
+        @testset "calibrate_chirp from a synthetic OKE run" begin
+            # Gaussian ridge whose center follows a known cubic in λ, with
+            # wavelength-dependent width (the IRF), amplitude tapering across
+            # columns, and two near-dead columns at the blue edge. The 1 fs
+            # deterministic ridge jitter keeps the MAD outlier rejection's
+            # residuals dominated by bounded, real scatter — on exact data the
+            # residuals are pure solver noise and the rejection is arbitrary.
+            time = collect(range(-2.0, 2.0, length=161))    # dt = 25 fs
+            wavelength = collect(range(500.0, 700.0, length=41))
+            dt = time[2] - time[1]
+            t0_true(λ) = (u = λ - 600.0; 0.3 + 4e-3 * u + 1.5e-5 * u^2 + 6e-8 * u^3)
+            σ_true(λ) = 0.15 + 2e-4 * (λ - 500.0)
+            data = zeros(length(time), length(wavelength))
+            for (j, λ) in enumerate(wavelength)
+                A = j <= 2 ? 0.02 : 1.0 - 0.7 * (λ - 500.0) / 200.0
+                t0_col = t0_true(λ) + 0.001 * sin(3.0 * j)
+                for (i, t) in enumerate(time)
+                    data[i, j] = A * exp(-(t - t0_col)^2 / (2 * σ_true(λ)^2)) + 0.05
+                end
+            end
+            oke = TimeResolvedMatrix(time, wavelength, data,
+                                     Dict{Symbol,Any}(:source => "oke_run.h5"))
+
+            @testset ":gaussian recovers the cubic, σ(λ), and t₀ at reference" begin
+                cal = calibrate_chirp(oke; reference=600.0)
+                @test cal isa ChirpCalibration
+                @test cal.poly_order == 3
+                @test cal.reference_λ == 600.0
+                @test cal.r_squared > 0.99
+
+                # The two near-dead columns fall below 5% of the strongest
+                @test length(cal.wavelength) == 39
+                @test cal.metadata[:n_weak] == 2
+                @test cal.metadata[:lambda_range] == (510.0, 700.0)
+
+                # Polynomial matches the planted cubic re-centered to reference_λ
+                poly = polynomial(cal)
+                @test all(abs(poly(λ) - (t0_true(λ) - t0_true(600.0))) < 0.005
+                          for λ in cal.wavelength)
+                @test cal.metadata[:t0_at_reference] ≈ t0_true(600.0) atol = 0.005
+
+                # IRF widths (standard deviations) aligned with kept wavelengths
+                σs = cal.metadata[:irf_sigma]
+                @test σs isa Vector{Float64}
+                @test length(σs) == length(cal.wavelength)
+                @test all(abs(σs[k] - σ_true(cal.wavelength[k])) < 0.01
+                          for k in eachindex(σs))
+
+                # Provenance
+                @test cal.metadata[:source] === :oke
+                @test cal.metadata[:source_file] == "oke_run.h5"
+                @test cal.metadata[:method] === :gaussian
+
+                # Fresh outputs — no aliasing of the input axes
+                @test cal.wavelength !== oke.wavelength
+            end
+
+            @testset ":peak agrees with :gaussian on clean data" begin
+                cal_g = calibrate_chirp(oke; reference=600.0)
+                cal_p = calibrate_chirp(oke; method=:peak, reference=600.0)
+                poly_g = polynomial(cal_g)
+                poly_p = polynomial(cal_p)
+                @test all(abs(poly_p(λ) - poly_g(λ)) < 0.5 * dt for λ in cal_g.wavelength)
+                @test !haskey(cal_p.metadata, :irf_sigma)
+                @test cal_p.metadata[:method] === :peak
+            end
+
+            @testset "reference=:center is the kept-coverage midpoint" begin
+                cal = calibrate_chirp(oke)
+                @test cal.reference_λ == 605.0      # (510 + 700) / 2 after masking
+                poly = polynomial(cal)
+                @test abs(poly(cal.reference_λ)) < 1e-8
+            end
+
+            @testset "source kwarg overrides the matrix provenance" begin
+                cal = calibrate_chirp(oke; source="override.h5")
+                @test cal.metadata[:source_file] == "override.h5"
+            end
+
+            @testset "wl_range and t_range restrict the fit" begin
+                cal = calibrate_chirp(oke; wl_range=(550.0, 650.0), reference=600.0)
+                @test cal.metadata[:lambda_range] == (550.0, 650.0)
+                @test all(λ -> 550.0 <= λ <= 650.0, cal.wavelength)
+                @test cal.metadata[:wl_range] == (550.0, 650.0)
+
+                cal_t = calibrate_chirp(oke; t_range=(-1.5, 2.0), reference=600.0)
+                @test cal_t.metadata[:t_range] == (-1.5, 2.0)
+                @test cal_t.r_squared > 0.99
+            end
+
+            @testset "keyword validation" begin
+                @test_throws ArgumentError calibrate_chirp(oke; method=:xpm)
+                @test_throws ArgumentError calibrate_chirp(oke; order=0)
+                @test_throws ArgumentError calibrate_chirp(oke; min_amplitude=-0.1)
+                @test_throws ArgumentError calibrate_chirp(oke; min_amplitude=1.0)
+                @test_throws ArgumentError calibrate_chirp(oke; wl_range=(700.0, 500.0))
+                @test_throws ArgumentError calibrate_chirp(oke; t_range=(2.0, -2.0))
+                @test_throws ArgumentError calibrate_chirp(oke; wl_range=(900.0, 950.0))
+                @test_throws ArgumentError calibrate_chirp(oke; t_range=(0.0, 0.02))
+                @test_throws ArgumentError calibrate_chirp(oke; reference=:blue)
+            end
+
+            @testset "too few surviving columns is an ArgumentError" begin
+                wl4 = collect(range(500.0, 700.0, length=4))
+                d4 = [exp(-t^2 / (2 * 0.2^2)) for t in time, λ in wl4]
+                m4 = TimeResolvedMatrix(time, wl4, d4, Dict{Symbol,Any}())
+                @test_throws ArgumentError calibrate_chirp(m4; order=3)  # 4 < order + 2
+            end
+        end
+
+        @testset "correct_chirp clamps outside the calibration's λ coverage" begin
+            # Gaussian ridge with linear chirp over the full 500–700 nm axis;
+            # the calibration declares coverage of only 550–650 nm.
+            ref_λ = 600.0
+            slope = 0.02
+            time = collect(range(-5.0, 5.0, length=201))
+            wavelength = collect(range(500.0, 700.0, length=21))
+            ridge(λ) = slope * (λ - ref_λ)
+            data = [exp(-(t - ridge(λ))^2 / (2 * 0.2^2)) for t in time, λ in wavelength]
+            matrix = TimeResolvedMatrix(time, wavelength, data, Dict{Symbol,Any}())
+
+            coeffs = [-slope * ref_λ, slope]
+            cal_clamped = ChirpCalibration(collect(wavelength), ridge.(wavelength),
+                coeffs, 1, ref_λ, 1.0,
+                Dict{Symbol,Any}(:lambda_range => (550.0, 650.0)))
+            cal_free = ChirpCalibration(collect(wavelength), ridge.(wavelength),
+                coeffs, 1, ref_λ, 1.0, Dict{Symbol,Any}())
+
+            peak_time(c, j) = time[argmax(replace(c.data[:, j], NaN => -Inf))]
+
+            corrected = correct_chirp(matrix, cal_clamped)
+            # Inside coverage the ridge flattens to t = 0
+            for j in findall(λ -> 550.0 <= λ <= 650.0, wavelength)
+                @test abs(peak_time(corrected, j)) < 0.1
+            end
+            # Outside coverage the shift is held at the endpoint value, so the
+            # residual ridge position is ridge(λ) - ridge(clamped λ)
+            @test peak_time(corrected, 1) ≈ ridge(500.0) - ridge(550.0) atol = 0.06
+            @test peak_time(corrected, 21) ≈ ridge(700.0) - ridge(650.0) atol = 0.06
+
+            # Without :lambda_range the same polynomial corrects everywhere
+            corrected_free = correct_chirp(matrix, cal_free)
+            @test abs(peak_time(corrected_free, 1)) < 0.1
+            @test abs(peak_time(corrected_free, 21)) < 0.1
+        end
+
+        @testset "correct_chirp NaN edge contract (both interpolation paths)" begin
+            # Constant-1 data with shifts of exactly ±1: every sample shifted
+            # past the time axis must be NaN, everything else exactly 1
+            cal = ChirpCalibration([500.0, 700.0], [-1.0, 1.0],
+                [-6.0, 0.01], 1, 600.0, 1.0, Dict{Symbol,Any}())
+            # poly(λ) = 0.01λ - 6 → shift(500) = -1, shift(700) = +1
+
+            # Uniform axis → cubic B-spline path
+            t_u = collect(range(-5.0, 5.0, length=201))
+            m_u = TimeResolvedMatrix(t_u, [500.0, 700.0], ones(201, 2), Dict{Symbol,Any}())
+            c_u = correct_chirp(m_u, cal)
+            @test count(isnan, c_u.data[:, 1]) == count(t -> t - 1.0 < -5.0, t_u)
+            @test count(isnan, c_u.data[:, 2]) == count(t -> t + 1.0 > 5.0, t_u)
+            @test all(x -> isnan(x) || x ≈ 1.0, c_u.data)
+            @test isnan(c_u.data[1, 1]) && !isnan(c_u.data[end, 1])
+            @test isnan(c_u.data[end, 2]) && !isnan(c_u.data[1, 2])
+
+            # Non-uniform axis → gridded-linear path
+            t_n = vcat(collect(range(-5.0, 1.0, length=61)),
+                       collect(range(1.5, 5.0, length=8)))
+            @test !OpticalSpectroscopy._is_uniform(t_n)
+            m_n = TimeResolvedMatrix(t_n, [500.0, 700.0], ones(length(t_n), 2),
+                                     Dict{Symbol,Any}())
+            c_n = correct_chirp(m_n, cal)
+            @test count(isnan, c_n.data[:, 1]) == count(t -> t - 1.0 < -5.0, t_n)
+            @test count(isnan, c_n.data[:, 2]) == count(t -> t + 1.0 > 5.0, t_n)
+            @test all(x -> isnan(x) || x ≈ 1.0, c_n.data)
+        end
+
+        @testset "OKE calibration survives the JSON round-trip, clamp intact" begin
+            ref_λ = 600.0
+            slope = 0.02
+            cal = ChirpCalibration([550.0, 600.0, 650.0],
+                [slope * (λ - ref_λ) for λ in [550.0, 600.0, 650.0]],
+                [-slope * ref_λ, slope], 1, ref_λ, 1.0,
+                Dict{Symbol,Any}(:source => :oke, :source_file => "oke_run.h5",
+                                 :lambda_range => (550.0, 650.0),
+                                 :t0_at_reference => 0.3,
+                                 :irf_sigma => [0.15, 0.16, 0.17]))
+
+            tmpfile = tempname() * ".json"
+            save_chirp(tmpfile, cal)
+            loaded = load_chirp(tmpfile)
+            rm(tmpfile)
+
+            # JSON turns the tuple into a vector; correct_chirp accepts both
+            @test collect(loaded.metadata[:lambda_range]) == [550.0, 650.0]
+            @test loaded.metadata[:t0_at_reference] == 0.3
+
+            time = collect(range(-5.0, 5.0, length=201))
+            wavelength = collect(range(500.0, 700.0, length=21))
+            data = [exp(-(t - slope * (λ - ref_λ))^2 / (2 * 0.2^2))
+                    for t in time, λ in wavelength]
+            matrix = TimeResolvedMatrix(time, wavelength, data, Dict{Symbol,Any}())
+
+            from_original = correct_chirp(matrix, cal)
+            from_loaded = correct_chirp(matrix, loaded)
+            @test isequal(from_loaded.data, from_original.data)  # NaN-aware equality
         end
 
     end

@@ -11,68 +11,77 @@ If you don't correct for chirp, your data has two problems:
 1. **Spectra at early times are distorted.** A spectrum extracted at, say, ``t = 200`` fs doesn't represent a single moment in time --- it's a superposition of signals at different pump-probe delays for different wavelengths.
 2. **Kinetic traces at different wavelengths have shifted time zeros.** Fitting these traces yields apparent time constants that are convolved with the chirp, biasing your results.
 
-## Overview of correction methods
+## Two ways to get the chirp curve
 
-Several approaches exist for detecting and correcting chirp. They divide into two categories: methods that determine the chirp curve and correct it as a preprocessing step, and methods that fold chirp into the kinetic model itself.
+OpticalSpectroscopy provides two producers of a [`ChirpCalibration`](@ref):
 
-### Preprocessing approaches
+- **[`calibrate_chirp`](@ref) — measure it (recommended).** Run a dedicated optical Kerr effect (OKE) cross-correlation measurement and fit the per-wavelength peak position. This is the standard calibration: it is independent of any sample dynamics.
+- **[`detect_chirp`](@ref) — infer it from the sample data (fallback).** Estimate ``t_0(\lambda)`` from the sample matrix's own signal onsets. Quick, needs no extra measurement, but only unbiased under conditions stated below.
 
-These all follow the same two-stage logic: first measure the wavelength-dependent time zero ``t_0(\lambda)``, then shift each wavelength trace in time to align them.
+Either way, the resulting calibration feeds the same [`correct_chirp`](@ref) step and the same [`save_chirp`](@ref)/[`load_chirp`](@ref) persistence.
 
-#### Coherent artifact / cross-phase modulation (XPM) detection
+## The recommended path: calibrate from an OKE run
 
-The most common approach. The sharp, non-resonant coherent artifact that appears around time zero in TA data is wavelength-dependent due to chirp. You find the time-zero position at each wavelength, then fit a smooth function to the resulting chirp curve. This is what OpticalSpectroscopy implements.
-
-Several strategies exist for locating time zero at each wavelength:
-
-- **Maximum of ``|\Delta A|``:** Find the time point where the absolute signal is largest in the early-time window. Simple but can be biased if real dynamics have large amplitude near time zero.
-- **Steepest slope (maximum of ``d\Delta A/dt``):** Take the numerical derivative and find its extremum. This targets the *rising edge* of the signal rather than the peak, making it less sensitive to overlapping dynamics. Probably the most widely used variant.
-- **Half-rise point:** Find where each trace crosses 50% of its early-time extremum. Less sensitive to noise than the derivative method, but assumes a monotonic rise.
-- **Fit a step function convolved with a Gaussian:** At each wavelength, fit ``A \cdot \text{erfc}((t - t_0) / \sigma) + \text{offset}``. This gives ``t_0`` and the instrument response width ``\sigma`` simultaneously. Most rigorous, but slow when applied at every wavelength.
-- **Cross-correlation of onset gradients:** Cross-correlate the absolute gradient of each wavelength bin against a reference bin (the one with the strongest signal). Since the absolute gradient produces a spike at the onset regardless of whether the signal is positive (GSB) or negative (ESA), this is polarity-independent. Parabolic interpolation on the cross-correlation peak gives sub-time-step precision. This is the default `:xcorr` method in OpticalSpectroscopy.
-
-#### Optical Kerr effect (OKE) reference measurement
-
-Measure the optical Kerr effect in a non-resonant medium (pure solvent, glass) placed at the sample position. The OKE signal is instantaneous, so its peak position vs. wavelength directly traces the chirp curve. This is considered the gold standard because it is independent of sample dynamics, but it requires a separate measurement with a different detection geometry (crossed polarizers).
-
-#### Two-photon absorption (TPA) reference
-
-Use a thin semiconductor or dye solution where two-photon absorption provides a sharp, instantaneous response. The TPA signal onset traces the chirp curve. Less common than OKE, but useful when the setup geometry makes OKE difficult.
-
-#### Sellmeier / dispersion calculation
-
-Calculate the expected GVD analytically from the known optical elements in the probe path using Sellmeier equations for each material's refractive index. This gives a physics-based chirp curve without any calibration measurement. In practice this is used as a sanity check or starting guess rather than a primary correction, because small alignment differences and unaccounted optics introduce errors.
-
-#### Hardware pre-compensation
-
-Use chirped mirrors, prism compressors, or grism (grating + prism) compressors to pre-compensate the probe GVD so the pulse is nearly transform-limited at the sample. This minimizes chirp before acquisition rather than correcting it afterward. Often combined with a small software correction for residual chirp.
-
-### Model-based approaches
-
-#### Global analysis with chirp as a free parameter
-
-In global/target analysis (e.g., Glotaran), the chirp parameters are included as free parameters in the kinetic fit. The chirp curve, typically parameterized as a low-order polynomial, is optimized simultaneously with the rate constants and spectral amplitudes.
-
-This is becoming increasingly popular because:
-
-- It avoids sequential error propagation --- errors in the chirp detection step don't get baked into the "corrected" data before the kinetic model sees it.
-- The coherent artifact often overlaps with genuine ultrafast dynamics (solvation, vibrational cooling) in the first few hundred femtoseconds, making algorithmic separation ambiguous.
-- Software like Glotaran and pyglotaran has made it accessible without custom code.
-- It is self-consistent for publication: one coherent set of parameters rather than a preprocessing step with hidden assumptions.
-
-The main downside is that the chirp estimate is coupled to the kinetic model. A wrong model can give wrong chirp, and the optimization landscape is more complex. Most groups still do an initial correction as preprocessing, then let the global fit refine the chirp parameters.
-
-## Step-by-step correction as a preprocessing step
-
-This section walks through the standard workflow in detail.
-
-### Step 1: Subtract the pre-pump background
-
-TA is already a difference measurement, so the signal before the pump arrives should be zero. Any residual offset is systematic background (detector dark current, scattered pump light, etc.). Subtracting it removes a constant bias that otherwise degrades detection --- and for `:threshold` it is effectively required: on a matrix that still carries its background, every bin crosses the half-maximum at the first sample, and detection collapses to a flat, useless calibration (`detect_chirp` warns and reports `R^2` as `NaN`).
+Measure the optical Kerr effect in a non-resonant medium (pure solvent, glass) placed at the sample position, with crossed polarizers. The electronic Kerr response is non-resonant and effectively instantaneous, so the per-wavelength peak of the pump--probe cross-correlation traces the true ``t_0(\lambda)`` independent of any sample dynamics --- and the per-wavelength width of that peak is the instrument response function IRF(``\lambda``) for free. This is the gold standard because nothing about your sample's kinetics can bias it.
 
 ```julia
 using OpticalSpectroscopy
 
+oke = ...                        # TimeResolvedMatrix from the OKE run
+cal = calibrate_chirp(oke)
+report(cal)
+
+corrected = correct_chirp(sample_matrix, cal)   # apply to the sample run(s)
+save_chirp("chirp_oke_2026-07-23.json", cal)
+```
+
+For each wavelength column, `calibrate_chirp` locates the cross-correlation peak:
+
+- `method=:gaussian` (default) fits a Gaussian with vertical offset, yielding ``t_0`` **and** the IRF width ``\sigma`` (a standard deviation) per wavelength.
+- `method=:peak` uses the argmax with parabolic sub-sample interpolation --- faster, for high-SNR runs, with no IRF widths.
+
+Columns whose peak-to-peak amplitude falls below `min_amplitude` of the strongest column (5% by default) are masked out, as are columns whose per-column fit fails. The surviving ``(\lambda, t_0)`` points are fitted with a polynomial using the same MAD-based outlier rejection as `detect_chirp`.
+
+Key parameters:
+
+| Parameter | Default | When to change |
+|-----------|---------|----------------|
+| `method` | `:gaussian` | `:peak` for a fast pass on clean, high-SNR runs. |
+| `order` | 3 | 2 suffices for modest chirp; 3 for broadband (> 200 nm) coverage. |
+| `reference` | `:center` | Wavelength (nm) where the polynomial is zero. `:center` uses the midpoint of the surviving coverage. |
+| `wl_range` | `nothing` | `(λmin, λmax)` to exclude spectral regions (e.g. pump scatter). |
+| `t_range` | `nothing` | `(tmin, tmax)` to restrict the per-column fit window. |
+| `min_amplitude` | 0.05 | Raise to reject more weak-signal columns; `0` disables the mask. |
+
+### What the calibration carries
+
+Beyond the polynomial, the calibration's `metadata` records provenance that downstream tools rely on:
+
+- `:source => :oke` and `:source_file` --- where the calibration came from.
+- `:t0_at_reference` --- the **absolute** fitted ``t_0`` at the reference wavelength. The stored polynomial is normalized to zero at `reference_λ`, so this is what connects the calibration back to the delay-stage axis (e.g. to seed a time-zero correction).
+- `:irf_sigma` --- per-wavelength IRF standard deviations, aligned with `cal.wavelength` (`:gaussian` method only). Use these for wavelength-dependent IRF deconvolution in kinetic fits.
+- `:lambda_range` --- the wavelength coverage actually kept in the fit, which controls clamping (next section).
+
+### Coverage and clamping
+
+A calibration is only trustworthy over the wavelengths it actually measured. When the spectrograph center changes between runs, the wavelength axes shift, and a sample run can extend past the calibration's coverage. A polynomial extrapolated beyond its data is garbage --- a cubic can swing by picoseconds a few tens of nm past the measured window.
+
+`correct_chirp` therefore evaluates the shift polynomial at `clamp(λ, λmin, λmax)` whenever the calibration carries `:lambda_range`: outside the measured window, the shift is held flat at the endpoint value. That is bounded and honest, but it is still not a measurement --- if a spectral region you care about lies outside the calibration's coverage, re-measure the OKE run on that spectrograph window. Calibrations from `detect_chirp` measure the same matrix they correct, so they don't set the key and are evaluated everywhere, as before.
+
+## Fallback: detecting the chirp from the sample matrix
+
+Without an OKE run you can bootstrap a calibration from the sample matrix itself: `detect_chirp` estimates ``t_0(\lambda)`` from the wavelength-resolved signal onsets. **This is only unbiased when both of the following hold:**
+
+1. The data contains a genuinely instantaneous marker of pump--probe overlap at every wavelength (a sharp coherent artifact, or signal rise limited only by the IRF), and
+2. early-time kinetics are slow compared to the IRF.
+
+Whenever rise times vary with wavelength --- hot-carrier cooling, energy transfer, spectral diffusion --- onset detection absorbs those real dynamics into the time axis and manufactures false simultaneity. Treat it as a quick-look bootstrap, not a calibration.
+
+### Step 1: Subtract the pre-pump background
+
+TA is already a difference measurement, so the signal before the pump arrives should be zero. Any residual offset is systematic background (detector dark current, scattered pump light, etc.). Subtracting it removes a constant bias that otherwise degrades detection --- and for `:threshold` it is effectively required: on a matrix that still carries its background, every bin crosses the half-maximum at the first sample, and detection collapses to a flat, useless calibration (`detect_chirp` warns and reports ``R^2`` as `NaN`).
+
+```julia
 matrix_bg = subtract_background(matrix)
 ```
 
@@ -80,18 +89,14 @@ matrix_bg = subtract_background(matrix)
 
 ### Step 2: Detect the chirp curve
 
-OpticalSpectroscopy provides two detection methods. Both bin the wavelength axis for noise reduction, smooth each bin with a Savitzky-Golay filter, then locate the signal onset.
+Both detection methods bin the wavelength axis for noise reduction, smooth each bin with a Savitzky-Golay filter, then locate the signal onset.
 
 ```julia
-cal = detect_chirp(matrix_bg)
-report(cal)
-```
-
-The default `:xcorr` method cross-correlates onset gradients against the strongest-signal bin. Use `:threshold` for simpler half-maximum onset detection:
-
-```julia
+cal = detect_chirp(matrix_bg)               # :xcorr (default)
 cal_thr = detect_chirp(matrix_bg; method=:threshold)
 ```
+
+The default `:xcorr` method cross-correlates onset gradients against the strongest-signal bin; since the absolute gradient produces a spike at the onset regardless of signal polarity, it handles mixed ESA/GSB regions. `:threshold` finds where each bin crosses half of its extremum --- simpler, and assumes a monotonic rise.
 
 Key parameters to adjust:
 
@@ -105,7 +110,7 @@ Key parameters to adjust:
 
 ### Step 3: Inspect the detected points
 
-Before trusting the calibration, check that the detected chirp points are sensible. The `ChirpCalibration` stores both the raw detected points and the polynomial fit:
+Before trusting a detected calibration, check that the chirp points are sensible:
 
 ```julia
 cal.wavelength     # detected wavelength points (nm)
@@ -128,19 +133,19 @@ Check these instead:
 
 If weak spectral edges are being dropped, raise `bin_width` to average more pixels per bin. Lowering `min_signal` admits those regions but makes detection noisier there --- it is not a way to rescue a scan that cannot resolve the chirp.
 
-### Step 4: Apply the correction
+## Applying the correction
 
-[`correct_chirp`](@ref) shifts each wavelength column in time using cubic spline interpolation:
+[`correct_chirp`](@ref) shifts each wavelength column in time, whichever way the calibration was produced:
 
 ```julia
 matrix_corrected = correct_chirp(matrix_bg, cal)
 ```
 
-For each wavelength ``\lambda_j``, the corrected signal at time ``t_i`` is the original signal evaluated at ``t_i + t_{\text{shift}}(\lambda_j)``, where ``t_{\text{shift}}`` comes from the calibration polynomial. Cubic B-spline interpolation ensures sharp features (the coherent artifact, fast rise times) are preserved without the broadening that linear interpolation would introduce.
+For each wavelength ``\lambda_j``, the corrected signal at time ``t_i`` is the original signal evaluated at ``t_i + t_{\text{shift}}(\lambda_j)``, where ``t_{\text{shift}}`` comes from the calibration polynomial (clamped to the calibration's `:lambda_range` when present). Cubic B-spline interpolation ensures sharp features (the coherent artifact, fast rise times) are preserved without the broadening that linear interpolation would introduce; on a non-uniform delay axis a gridded-linear fallback keeps the correction quantitatively correct.
 
-At the edges of the time axis, where the shifted time falls outside the measured range, the signal is extrapolated as flat (constant value equal to the boundary). Make sure your time window extends well beyond time zero so that the correction doesn't push any wavelength off the edge.
+At the edges of the time axis, samples whose shifted time falls outside the measured range come out as `NaN` --- no data was recorded there, and extrapolated values would masquerade as signal. Make sure your acquisition window extends well beyond time zero so the correction doesn't push any wavelength of interest off the edge.
 
-### Step 5: Validate
+### Validate
 
 After correction, check three things:
 
@@ -150,24 +155,33 @@ After correction, check three things:
 
 3. **Kinetics at the spectral extremes.** Compare kinetic traces at the blue and red edges. They should now show simultaneous rise times within the instrument response. If one edge is systematically shifted, the polynomial order may be too low or the detection failed at the edges.
 
-### Step 6: Save the calibration
+## Saving and reusing calibrations
 
 Store the chirp calibration for reproducibility and for applying to other datasets taken under the same optical conditions:
 
 ```julia
-save_chirp("chirp_cal_2024-01-15.json", cal)
+save_chirp("chirp_oke_2026-07-23.json", cal)
 
 # Later, or in a different script:
-cal = load_chirp("chirp_cal_2024-01-15.json")
+cal = load_chirp("chirp_oke_2026-07-23.json")
 matrix_corrected = correct_chirp(new_matrix, cal)
 ```
 
-The JSON file stores the polynomial coefficients, detected points, and all detection parameters so the calibration is fully reproducible.
+The JSON file stores the polynomial coefficients, the fitted points, and all calibration parameters (including the OKE provenance metadata), so the calibration is fully reproducible. The chirp is a property of the probe path, not the sample --- one OKE calibration serves every sample run measured with the same optics and spectrograph window.
+
+## Other approaches
+
+For completeness, other strategies you will meet in the literature:
+
+- **Two-photon absorption (TPA) reference.** A thin semiconductor or dye solution where two-photon absorption provides a sharp, instantaneous response tracing the chirp. Less common than OKE, but useful when the setup geometry makes crossed-polarizer detection difficult.
+- **Sellmeier / dispersion calculation.** Compute the expected GVD analytically from the known optical elements in the probe path. Useful as a sanity check or starting guess; in practice small alignment differences and unaccounted optics limit its accuracy.
+- **Hardware pre-compensation.** Chirped mirrors, prism compressors, or grisms minimize chirp before acquisition. Often combined with a small software correction for the residual.
+- **Global analysis with chirp as a free parameter.** Software like Glotaran folds the chirp polynomial into the kinetic fit itself, avoiding sequential error propagation --- at the cost of coupling the chirp estimate to the kinetic model. Most groups still correct as preprocessing, then let the global fit refine.
 
 ## Common pitfalls
 
-**Using too narrow a time window for detection.**
-If the detection window doesn't capture the full signal rise at all wavelengths (because of the chirp itself), edge wavelengths get incorrect ``t_0`` values. The auto-detection in OpticalSpectroscopy accounts for this, but if you set `t_range` manually, make it generous.
+**Using too narrow a time window.**
+If the window doesn't capture the full peak (OKE) or signal rise (detection) at all wavelengths --- because of the chirp itself --- edge wavelengths get incorrect ``t_0`` values. If you set `t_range` manually, make it generous.
 
 **Getting the sign convention wrong.**
 Does ``t_0 > 0`` mean the blue arrives early or late? Getting this backwards flips the correction and doubles the chirp instead of removing it. In normal materials, the blue arrives later (positive GVD). After correction, check that the surface looks *less* curved, not more.
@@ -175,34 +189,34 @@ Does ``t_0 > 0`` mean the blue arrives early or late? Getting this backwards fli
 **Correcting twice.**
 If the acquisition software already applies a partial chirp correction, applying a second correction on top will overcorrect. Check the raw data before starting.
 
+**Applying a calibration outside its wavelength coverage.**
+The clamp keeps the correction bounded outside `:lambda_range`, but flat is not measured. If your sample run extends meaningfully past the calibration's coverage, re-measure the OKE run on the matching spectrograph window.
+
 **Overfitting the polynomial.**
-The chirp curve should be smooth. Any high-frequency structure in ``t_0(\lambda)`` is noise. Use the minimum polynomial order that captures the curvature --- 2nd or 3rd order is almost always sufficient. OpticalSpectroscopy uses MAD-based outlier rejection to guard against this, but inspecting the residuals is still good practice.
+The chirp curve should be smooth. Any high-frequency structure in ``t_0(\lambda)`` is noise. Use the minimum polynomial order that captures the curvature --- 2nd or 3rd order is almost always sufficient. MAD-based outlier rejection guards against this, but inspecting the residuals is still good practice.
 
 **Ignoring the wavelength-dependent IRF.**
-GVD doesn't just shift time zero --- it also temporally broadens the probe pulse at wavelengths far from the continuum center. The correction procedure above fixes the shift but not the broadening. For the most accurate kinetics, you may need a wavelength-dependent instrument response function in your fitting model.
+GVD doesn't just shift time zero --- it also temporally broadens the probe pulse at wavelengths far from the continuum center. Chirp correction fixes the shift but not the broadening. `calibrate_chirp` with `method=:gaussian` hands you IRF(``\lambda``) in `metadata[:irf_sigma]`; use it for a wavelength-dependent instrument response in your kinetic fits.
 
 ## Full example
 
 ```julia
 using OpticalSpectroscopy
 
-# Assume `matrix` is a TimeResolvedMatrix loaded from your data
-# Step 1: Background subtraction
-matrix_bg = subtract_background(matrix)
-
-# Step 2: Detect chirp
-cal = detect_chirp(matrix_bg; bin_width=16, order=3)
+# --- Calibrate once per optical configuration, on the OKE run ---
+oke = ...                                  # TimeResolvedMatrix from the OKE run
+cal = calibrate_chirp(oke; order=3)
 report(cal)
+save_chirp("chirp_oke.json", cal)
 
-# Step 3: Inspect
-println("R-squared: ", cal.r_squared)
-println("Number of detected points: ", length(cal.wavelength))
-
-# Step 4: Correct
+# --- Apply to sample runs measured with the same optics ---
+matrix_bg = subtract_background(matrix)
 matrix_corrected = correct_chirp(matrix_bg, cal)
 
-# Step 5: Save for reuse
-save_chirp("chirp_calibration.json", cal)
+# --- No OKE run available? Fall back to in-data detection ---
+cal_fallback = detect_chirp(matrix_bg; bin_width=16, order=3)
+report(cal_fallback)
+matrix_corrected = correct_chirp(matrix_bg, cal_fallback)
 ```
 
 ## API Reference
