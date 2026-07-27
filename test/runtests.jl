@@ -2305,6 +2305,66 @@ Random.seed!(42)
             @test all(x -> isnan(x) || x ≈ 1.0, c_n.data)
         end
 
+        @testset "subtract_background skips chirp-edge NaNs (regression)" begin
+            # correct_chirp NaN-fills one edge region per column: at the START
+            # of the time axis for negative shifts — inside typical pre-pump
+            # baseline windows. A plain window mean then wiped whole columns.
+            cal = ChirpCalibration([500.0, 700.0], [-1.0, 1.0],
+                [-6.0, 0.01], 1, 600.0, 1.0, Dict{Symbol,Any}())
+            # poly(λ) = 0.01λ - 6 → shift(500) = -1 (NaN at start), shift(700) = +1
+
+            t = collect(range(-5.0, 5.0, length=101))
+            m = TimeResolvedMatrix(t, [500.0, 700.0], fill(2.0, 101, 2),
+                                   Dict{Symbol,Any}())
+            chirped = correct_chirp(m, cal)
+            @test isnan(chirped.data[1, 1])       # NaN inside the pre-pump window
+
+            corrected = subtract_background(chirped; t_range=(-5.0, -2.0))
+            for j in axes(corrected.data, 2)
+                @test !all(isnan, corrected.data[:, j])
+            end
+            # Constant data → baseline 2.0 → finite samples subtract to 0
+            @test all(x -> isnan(x) || abs(x) < 1e-9, corrected.data)
+            # Chirp NaNs pass through untouched (same count as before)
+            @test count(isnan, corrected.data) == count(isnan, chirped.data)
+        end
+
+        @testset "subtract_background all-NaN window warns, column stays NaN" begin
+            t = collect(range(-5.0, 4.0, length=10))   # steps of 1 ps
+            data = ones(10, 2)
+            data[1:3, 1] .= NaN                        # rows at -5, -4, -3 ps
+            m = TimeResolvedMatrix(t, [500.0, 700.0], data, Dict{Symbol,Any}())
+
+            corrected = @test_logs (:warn, r"all-NaN for 1 of 2") match_mode=:any begin
+                subtract_background(m; t_range=(-5.0, -3.0))
+            end
+            @test all(isnan, corrected.data[:, 1])     # no baseline determinable
+            @test all(corrected.data[:, 2] .== 0.0)    # other column unaffected
+        end
+
+        @testset "auto baseline range survives chirp-edge NaNs" begin
+            # Step onset at t = 0; dechirping aligns both columns and leaves
+            # NaN at the axis edges. The auto range must stay finite.
+            t = collect(range(-5.0, 15.0, length=201))
+            wl = [500.0, 700.0]
+            data = [ti > 0.0 ? 1.0 : 0.1 for ti in t, _ in 1:2]
+            cal = ChirpCalibration(wl, [-1.0, 1.0], [-6.0, 0.01], 1, 600.0,
+                                   1.0, Dict{Symbol,Any}())
+            chirped = correct_chirp(TimeResolvedMatrix(t, wl, data,
+                                    Dict{Symbol,Any}()), cal)
+            @test isnan(chirped.data[1, 1])
+
+            corrected = subtract_background(chirped)   # no t_range → auto path
+            lo, hi = corrected.metadata[:baseline_t_range]
+            @test isfinite(lo) && isfinite(hi)
+            for j in axes(corrected.data, 2)
+                @test !all(isnan, corrected.data[:, j])
+            end
+            # Rows well before the onset are subtracted to ~0 where finite
+            pre = corrected.time .< -2.0
+            @test all(x -> isnan(x) || abs(x) < 0.02, corrected.data[pre, :])
+        end
+
         @testset "OKE calibration survives the JSON round-trip, clamp intact" begin
             ref_λ = 600.0
             slope = 0.02
