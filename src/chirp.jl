@@ -76,6 +76,14 @@ end
 
 Subtract pre-pump background from a TA matrix by averaging and removing
 the signal in the baseline region (before pump arrival).
+
+NaN samples inside the baseline window are skipped: each wavelength column's
+baseline is the mean of its finite values only. This keeps the correction
+usable after [`correct_chirp`](@ref), which NaN-fills samples shifted past
+the time-axis edges — for negative shifts that lands at the start of the
+axis, inside typical pre-pump windows. A column with no finite values in
+the window gets a NaN baseline (the whole column becomes NaN) and a
+warning is emitted.
 """
 function subtract_background(matrix::TimeResolvedMatrix; t_range::Union{Tuple,Nothing}=nothing)
     time = matrix.time
@@ -94,8 +102,18 @@ function subtract_background(matrix::TimeResolvedMatrix; t_range::Union{Tuple,No
         mask[1:min(5, length(time))] .= true
     end
 
-    # Average baseline rows per wavelength column
-    baseline = vec(mean(data[mask, :], dims=1))
+    # Average baseline rows per wavelength column, skipping NaNs: correct_chirp
+    # NaN-fills samples shifted past the time-axis edges, and for negative
+    # shifts those land at the start of the axis — inside typical pre-pump
+    # windows. A plain mean would turn one NaN row into an all-NaN column.
+    baseline = map(eachcol(view(data, mask, :))) do col
+        finite = filter(!isnan, col)
+        isempty(finite) ? NaN : mean(finite)
+    end
+    n_allnan = count(isnan, baseline)
+    if n_allnan > 0
+        @warn "Baseline window t_range=$t_range is all-NaN for $n_allnan of $(length(baseline)) wavelength columns; those columns stay NaN"
+    end
 
     # Subtract from every row
     corrected = data .- baseline'
@@ -110,16 +128,22 @@ end
 """
 Auto-detect baseline region: everything before 80% of the way to signal onset.
 Signal onset is found via the maximum of the column-averaged absolute gradient.
+NaN samples (e.g. chirp-shifted edge rows) are skipped so they cannot blank
+the onset search.
 """
 function _auto_baseline_range(time, data)
-    # Average absolute signal across all wavelengths
-    avg_signal = vec(mean(abs.(data), dims=2))
+    # Average absolute signal across all wavelengths, skipping NaNs
+    avg_signal = map(eachrow(data)) do row
+        finite = filter(!isnan, row)
+        isempty(finite) ? NaN : mean(abs, finite)
+    end
 
-    # Gradient along time
+    # Gradient along time; a NaN gradient (all-NaN neighbor row) cannot win
     grad = diff(avg_signal)
+    scores = [isnan(g) ? -Inf : abs(g) for g in grad]
 
     # Signal onset = time of maximum gradient
-    onset_idx = argmax(abs.(grad))
+    onset_idx = argmax(scores)
 
     # Baseline ends at 80% of the way to onset
     baseline_end_idx = max(1, round(Int, 0.8 * onset_idx))
