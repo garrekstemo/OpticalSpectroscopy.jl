@@ -638,6 +638,11 @@ Random.seed!(42)
         g4 = initial_peak_guesses(x, y; n_peaks=1, model=pseudo_voigt, baseline_order=0)
         @test g4.peak_params == [:amplitude, :center, :sigma, :mixing]
         @test length(g4.p0) == 4 + 1
+
+        # Degenerate input fails with the same ArgumentErrors as fit_peaks
+        @test_throws ArgumentError initial_peak_guesses(Float64[], Float64[])
+        @test_throws ArgumentError initial_peak_guesses(x[1:3], y[1:3])
+        @test_throws ArgumentError initial_peak_guesses(x, y[1:10])
     end
 
     @testset "MultiPeakFitResult indexing and iteration" begin

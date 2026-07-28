@@ -169,6 +169,11 @@ function initial_peak_guesses(x::AbstractVector, y::AbstractVector;
                               peaks::Union{Vector{PeakInfo}, Nothing}=nothing,
                               baseline_order::Int=1,
                               min_prominence::Real=0.05)
+    # Same preconditions as fit_peaks, so callers get an ArgumentError (not a
+    # reduce-over-empty error from the detection internals) on degenerate input.
+    length(x) == length(y) || throw(ArgumentError("x and y must have same length"))
+    length(x) < 5 && throw(ArgumentError("Need at least 5 data points"))
+
     x_f = collect(Float64, x)
     y_f = collect(Float64, y)
 
