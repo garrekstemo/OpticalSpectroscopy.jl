@@ -79,7 +79,7 @@ export TAPeak, TASpectrumFit, anharmonicity, das
 # Exports — Fitting
 # ==========================================================================
 export fit_exp_decay, fit_global, fit_lifetime_spectrum
-export fit_peaks, predict_peak, predict_baseline
+export fit_peaks, initial_peak_guesses, predict_peak, predict_baseline
 export fit_ta_spectrum
 export report, format_results, polynomial
 export mean_lifetime

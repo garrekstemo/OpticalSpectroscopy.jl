@@ -6,6 +6,7 @@ Unified multi-peak fitting that works on any spectrum type. Uses [CurveFit.jl](h
 
 ```@docs
 fit_peaks
+initial_peak_guesses
 ```
 
 ## Result Types

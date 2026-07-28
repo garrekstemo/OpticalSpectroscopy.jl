@@ -604,6 +604,42 @@ Random.seed!(42)
         @test result.r_squared > 0.99
     end
 
+    @testset "initial_peak_guesses" begin
+        x = collect(1900.0:0.5:2200.0)
+        y = @. 0.5 / (1 + ((x - 2020.0) / 8.0)^2) + 0.3 / (1 + ((x - 2080.0) / 6.0)^2) + 0.01
+
+        g = initial_peak_guesses(x, y; n_peaks=2)
+        @test g.n_peaks == 2
+        @test g.peak_params == [:amplitude, :center, :fwhm]
+        @test g.baseline_order == 1
+        @test length(g.p0) == 2 * 3 + 2  # two 3-param peaks + linear baseline
+
+        # Center guesses land on the true peaks
+        @test g.p0[2] ≈ 2020.0 atol=5.0
+        @test g.p0[5] ≈ 2080.0 atol=5.0
+
+        # Feeding the guesses back through fit_peaks(p0=...) reproduces the auto fit
+        auto = fit_peaks(x, y; n_peaks=2)
+        seeded = fit_peaks(x, y; n_peaks=2, p0=g.p0)
+        @test seeded.r_squared ≈ auto.r_squared atol=1e-8
+        @test seeded[1][:center].value ≈ auto[1][:center].value atol=1e-6
+
+        # An edited guess (nudged center) still converges to the same optimum
+        p0_edit = copy(g.p0)
+        p0_edit[2] = 2015.0
+        edited = fit_peaks(x, y; n_peaks=2, p0=p0_edit)
+        @test edited[1][:center].value ≈ 2020.0 atol=1.0
+
+        # n_peaks auto-resolution matches fit_peaks (detection-driven)
+        g_auto = initial_peak_guesses(x, y)
+        @test g_auto.n_peaks >= 1
+
+        # 4-parameter model widens the block and reports its parameter names
+        g4 = initial_peak_guesses(x, y; n_peaks=1, model=pseudo_voigt, baseline_order=0)
+        @test g4.peak_params == [:amplitude, :center, :sigma, :mixing]
+        @test length(g4.p0) == 4 + 1
+    end
+
     @testset "MultiPeakFitResult indexing and iteration" begin
         x = collect(1900.0:0.5:2200.0)
         y = @. 0.5 / (1 + ((x - 2050.0) / 10.0)^2) + 0.01
@@ -817,6 +853,69 @@ Random.seed!(42)
         curve = predict(result2, trace)
         @test length(curve) == length(trace.time)
         @test all(isfinite, curve)
+    end
+
+    @testset "User initial guesses for decay fits" begin
+        t = collect(0.0:0.1:50.0)
+        tau_true = 10.0
+        signal = @. 0.8 * exp(-t / tau_true) + 0.01
+        signal .+= 0.001 .* randn(length(signal))
+        trace = KineticTrace(t, signal)
+
+        # Single exponential: overrides seed the fit without changing the optimum
+        r = fit_exp_decay(trace; tau0=12.0, amplitude0=0.7, offset0=0.0)
+        @test r isa ExpDecayFit
+        @test r.tau ≈ tau_true atol=1.5
+        @test r.rsquared > 0.99
+
+        # Partial override (only tau0) is allowed
+        r_tau = fit_exp_decay(trace; tau0=12.0)
+        @test r_tau.tau ≈ tau_true atol=1.5
+
+        # IRF path accepts the same overrides
+        t_irf = collect(-5.0:0.1:50.0)
+        sig_irf = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 1.0, 8.0, 0.0, 0.3) + 0.02
+                   for ti in t_irf]
+        sig_irf .+= 0.001 .* randn(length(sig_irf))
+        r_irf = fit_exp_decay(KineticTrace(t_irf, sig_irf); irf=true, irf_width=0.2,
+                              tau0=6.0, amplitude0=0.9, offset0=0.0)
+        @test r_irf isa ExpDecayFit
+        @test r_irf.tau ≈ 8.0 atol=1.0
+
+        # Biexponential: vector guesses with nothing = keep the automatic value
+        sig2 = [OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.4, 2.0, 0.0, 0.3) +
+                OpticalSpectroscopy._exp_decay_irf_conv(ti, 0.6, 20.0, 0.0, 0.3) + 0.01
+                for ti in t_irf]
+        sig2 .+= 0.002 .* randn(length(sig2))
+        trace2 = KineticTrace(t_irf, sig2)
+        r2 = fit_exp_decay(trace2; n_exp=2, irf=true, irf_width=0.2,
+                           tau0=[1.5, nothing], amplitude0=[nothing, 0.5])
+        @test r2 isa MultiexpDecayFit
+        @test r2.taus[1] ≈ 2.0 atol=1.0
+        @test r2.taus[2] ≈ 20.0 atol=4.0
+
+        # No-IRF multiexp path takes vector guesses too
+        r2b = fit_exp_decay(trace; n_exp=2, tau0=[3.0, 30.0], offset0=0.01)
+        @test r2b isa MultiexpDecayFit
+        @test all(r2b.taus .> 0)
+
+        # Stretched: beta0 seeds β
+        sig_s = @. 0.8 * exp(-(max(t, 1e-12) / 10.0)^0.6) + 0.01
+        sig_s .+= 0.001 .* randn(length(sig_s))
+        rs = fit_exp_decay(KineticTrace(t, sig_s); model=:stretched,
+                           tau0=8.0, amplitude0=0.7, offset0=0.0, beta0=0.5)
+        @test rs isa StretchedDecayFit
+        @test rs.beta ≈ 0.6 atol=0.1
+        @test rs.tau ≈ 10.0 atol=3.0
+
+        # Validation errors
+        @test_throws ArgumentError fit_exp_decay(trace; tau0=-1.0)          # non-positive τ
+        @test_throws ArgumentError fit_exp_decay(trace; tau0=NaN)           # non-finite
+        @test_throws ArgumentError fit_exp_decay(trace; n_exp=2, tau0=5.0)  # scalar for n_exp=2
+        @test_throws ArgumentError fit_exp_decay(trace; n_exp=2, tau0=[1.0, 2.0, 3.0])  # wrong length
+        @test_throws ArgumentError fit_exp_decay(trace; beta0=0.5)          # β for :exponential
+        @test_throws ArgumentError fit_exp_decay(trace; model=:stretched, beta0=1.5)  # β > 1
+        @test_throws ArgumentError fit_exp_decay(trace; amplitude0="big")   # non-numeric
     end
 
     @testset "Global fitting - synthetic (n_exp=1)" begin
