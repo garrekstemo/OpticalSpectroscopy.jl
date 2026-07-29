@@ -162,6 +162,11 @@ Returns a named tuple:
 The result can be edited and passed back to `fit_peaks` via its `p0` keyword,
 which is how a GUI or script lets a user adjust individual initial guesses
 while keeping automatic values for the rest.
+
+`model` must be one of the built-in lineshapes (`lorentzian`, `gaussian`,
+`pseudo_voigt`, `voigt`, `fano`); a custom function throws an `ArgumentError`,
+because the parameter layout automatic guesses depend on cannot be inferred
+from it. `fit_peaks` does accept a custom model when given an explicit `p0`.
 """
 function initial_peak_guesses(x::AbstractVector, y::AbstractVector;
                               model::Function=lorentzian,
@@ -174,10 +179,19 @@ function initial_peak_guesses(x::AbstractVector, y::AbstractVector;
     length(x) == length(y) || throw(ArgumentError("x and y must have same length"))
     length(x) < 5 && throw(ArgumentError("Need at least 5 data points"))
 
+    # Automatic guesses need the model's parameter layout — how many parameters
+    # a peak takes, which slot holds the width, and how a detected FWHM maps
+    # onto it. None of that can be inferred from an arbitrary function, and
+    # assuming a 3-parameter amplitude/center/width layout would silently
+    # produce a wrong-length or wrong-order p0. Custom lineshapes are still
+    # fittable: pass an explicit p0 to `fit_peaks`.
+    _is_known_model(model) || throw(ArgumentError(
+        "initial_peak_guesses needs a known lineshape (lorentzian, gaussian, " *
+        "pseudo_voigt, voigt, fano) to lay out the parameter vector; got $model. " *
+        "For a custom model, pass your own p0 to fit_peaks."))
+
     x_f = collect(Float64, x)
     y_f = collect(Float64, y)
-
-    npp = _is_known_model(model) ? _n_peak_params(model) : 3
 
     # Defensive copy: the trim path below sorts `detected` in place, and
     # the caller's `peaks` vector must not be reordered behind their back.
@@ -203,8 +217,7 @@ function initial_peak_guesses(x::AbstractVector, y::AbstractVector;
     end
 
     p0 = collect(Float64, _peaks_to_p0(detected, x_f, y_f, model; baseline_order=baseline_order))
-    param_names = _is_known_model(model) ? copy(_peak_param_names(model)) :
-                  [Symbol("p$i") for i in 1:npp]
+    param_names = copy(_peak_param_names(model))
 
     return (p0=p0, n_peaks=n_peaks, peak_params=param_names, baseline_order=baseline_order)
 end
