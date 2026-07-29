@@ -143,11 +143,81 @@ end
 # =============================================================================
 
 """
+    initial_peak_guesses(x, y; model=lorentzian, n_peaks=nothing, peaks=nothing,
+                         baseline_order=1, min_prominence=0.05)
+        -> (p0, n_peaks, peak_params, baseline_order)
+
+Compute the automatic initial parameter vector that [`fit_peaks`](@ref) would
+use for the same keywords, without running the fit.
+
+Returns a named tuple:
+- `p0::Vector{Float64}`: the full initial parameter vector, laid out as
+  `n_peaks` blocks of per-peak parameters followed by `baseline_order + 1`
+  polynomial baseline coefficients (constant first).
+- `n_peaks::Int`: the resolved peak count (after auto-detection when the
+  `n_peaks` keyword is `nothing`).
+- `peak_params::Vector{Symbol}`: the per-peak parameter names, in the order
+  they appear within each block.
+
+The result can be edited and passed back to `fit_peaks` via its `p0` keyword,
+which is how a GUI or script lets a user adjust individual initial guesses
+while keeping automatic values for the rest.
+"""
+function initial_peak_guesses(x::AbstractVector, y::AbstractVector;
+                              model::Function=lorentzian,
+                              n_peaks::Union{Int, Nothing}=nothing,
+                              peaks::Union{Vector{PeakInfo}, Nothing}=nothing,
+                              baseline_order::Int=1,
+                              min_prominence::Real=0.05)
+    # Same preconditions as fit_peaks, so callers get an ArgumentError (not a
+    # reduce-over-empty error from the detection internals) on degenerate input.
+    length(x) == length(y) || throw(ArgumentError("x and y must have same length"))
+    length(x) < 5 && throw(ArgumentError("Need at least 5 data points"))
+
+    x_f = collect(Float64, x)
+    y_f = collect(Float64, y)
+
+    npp = _is_known_model(model) ? _n_peak_params(model) : 3
+
+    # Defensive copy: the trim path below sorts `detected` in place, and
+    # the caller's `peaks` vector must not be reordered behind their back.
+    detected = if !isnothing(peaks)
+        copy(peaks)
+    else
+        find_peaks(x_f, y_f; min_prominence=min_prominence)
+    end
+
+    if !isnothing(n_peaks)
+        if length(detected) < n_peaks
+            detected = _synthesize_peak_guesses(x_f, y_f, n_peaks, detected)
+        elseif length(detected) > n_peaks
+            sort!(detected, by=p -> p.prominence, rev=true)
+            detected = detected[1:n_peaks]
+            sort!(detected, by=p -> p.position)
+        end
+    else
+        n_peaks = max(1, length(detected))
+        if isempty(detected)
+            detected = _synthesize_peak_guesses(x_f, y_f, 1, detected)
+        end
+    end
+
+    p0 = collect(Float64, _peaks_to_p0(detected, x_f, y_f, model; baseline_order=baseline_order))
+    param_names = _is_known_model(model) ? copy(_peak_param_names(model)) :
+                  [Symbol("p$i") for i in 1:npp]
+
+    return (p0=p0, n_peaks=n_peaks, peak_params=param_names, baseline_order=baseline_order)
+end
+
+"""
     fit_peaks(x, y; kwargs...) -> MultiPeakFitResult
     fit_peaks(spec::AbstractSpectroscopyData, region; kwargs...) -> MultiPeakFitResult
     fit_peaks(spec::AbstractSpectroscopyData; kwargs...) -> MultiPeakFitResult
 
 Fit one or more peaks in spectroscopy data.
+
+Automatic initial guesses come from [`initial_peak_guesses`](@ref); pass
+`p0` (a full parameter vector in the same layout) to override them.
 """
 function fit_peaks(x::AbstractVector, y::AbstractVector;
                    model::Function=lorentzian,
@@ -183,30 +253,11 @@ function fit_peaks(x::AbstractVector, y::AbstractVector;
         end
         p0_use = collect(Float64, p0)
     else
-        # Defensive copy: the trim path below sorts `detected` in place, and
-        # the caller's `peaks` vector must not be reordered behind their back.
-        detected = if !isnothing(peaks)
-            copy(peaks)
-        else
-            find_peaks(x_f, y_f; min_prominence=min_prominence)
-        end
-
-        if !isnothing(n_peaks)
-            if length(detected) < n_peaks
-                detected = _synthesize_peak_guesses(x_f, y_f, n_peaks, detected)
-            elseif length(detected) > n_peaks
-                sort!(detected, by=p -> p.prominence, rev=true)
-                detected = detected[1:n_peaks]
-                sort!(detected, by=p -> p.position)
-            end
-        else
-            n_peaks = max(1, length(detected))
-            if isempty(detected)
-                detected = _synthesize_peak_guesses(x_f, y_f, 1, detected)
-            end
-        end
-
-        p0_use = _peaks_to_p0(detected, x_f, y_f, model; baseline_order=baseline_order)
+        guesses = initial_peak_guesses(x_f, y_f; model=model, n_peaks=n_peaks,
+                                       peaks=peaks, baseline_order=baseline_order,
+                                       min_prominence=min_prominence)
+        n_peaks = guesses.n_peaks
+        p0_use = guesses.p0
     end
 
     x_mid, x_range = _baseline_norm(x_f)

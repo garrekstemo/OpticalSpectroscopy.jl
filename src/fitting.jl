@@ -46,19 +46,74 @@ function _detect_signal_type(signal)
     end
 end
 
+# User-supplied initial guesses. Each fit computes its automatic guesses as
+# before; a user value, where given, replaces the corresponding automatic one.
+
+function _checked_guess(v::Float64, name::Symbol; positive::Bool=false)
+    isfinite(v) || throw(ArgumentError("$name must be finite, got $v"))
+    positive && v <= 0 && throw(ArgumentError("$name must be positive, got $v"))
+    return v
+end
+
+# Normalize a guess spec to a length-n vector whose entries are Float64
+# overrides or `nothing` (= keep the automatic guess). Accepts `nothing`
+# (all automatic), a Real (n must be 1), or a vector of length n whose
+# entries are Reals or `nothing`. Idempotent, so already-normalized vectors
+# pass through unchanged.
+function _guess_vector(val, n::Int, name::Symbol; positive::Bool=false)
+    out = Vector{Union{Nothing,Float64}}(nothing, n)
+    isnothing(val) && return out
+    if val isa Real
+        n == 1 || throw(ArgumentError(
+            "$name must be a vector of length $n when n_exp = $n"))
+        out[1] = _checked_guess(Float64(val), name; positive)
+    elseif val isa AbstractVector
+        length(val) == n || throw(ArgumentError(
+            "$name has $(length(val)) entries but n_exp = $n"))
+        for (i, v) in enumerate(val)
+            isnothing(v) && continue
+            v isa Real || throw(ArgumentError(
+                "$name entries must be real numbers or nothing, got $(typeof(v))"))
+            out[i] = _checked_guess(Float64(v), name; positive)
+        end
+    else
+        throw(ArgumentError("$name must be a real number, a vector, or nothing"))
+    end
+    return out
+end
+
+function _scalar_guess(val, name::Symbol; positive::Bool=false)
+    isnothing(val) && return nothing
+    val isa Real || throw(ArgumentError("$name must be a real number or nothing"))
+    return _checked_guess(Float64(val), name; positive)
+end
+
+_override(auto::Real, user::Union{Nothing,Float64}) =
+    isnothing(user) ? Float64(auto) : user
+
 """
-    fit_decay_irf(t, signal; sigma_init=5.0) -> ExpDecayFit
+    fit_decay_irf(t, signal; sigma_init=5.0, tau0=nothing, amplitude0=nothing, offset0=nothing) -> ExpDecayFit
 
 Fit an exponential decay convolved with a Gaussian IRF to pump-probe data.
+
+`tau0`, `amplitude0`, and `offset0` override the automatic initial guesses
+for τ, A, and the constant offset; any guess not supplied is estimated from
+the data. The t₀ guess is always the signal peak position, and `sigma_init`
+seeds the IRF width.
 """
 function fit_decay_irf(t::AbstractVector{<:Real}, signal::AbstractVector{<:Real};
-                       sigma_init::Real=5.0)
+                       sigma_init::Real=5.0,
+                       tau0=nothing, amplitude0=nothing, offset0=nothing)
+    tau_user = _scalar_guess(tau0, :tau0; positive=true)
+    amp_user = _scalar_guess(amplitude0, :amplitude0)
+    offset_user = _scalar_guess(offset0, :offset0)
+
     signal_type, peak_val, peak_idx = _detect_signal_type(signal)
 
     t0_init = t[peak_idx]
     n_edge = max(5, length(signal) ÷ 20)
-    offset_init = mean(signal[1:n_edge])
-    A_init = peak_val - offset_init
+    offset_init = _override(mean(signal[1:n_edge]), offset_user)
+    A_init = _override(peak_val - offset_init, amp_user)
 
     half_val = (peak_val + offset_init) / 2
     half_idx = peak_idx
@@ -71,7 +126,7 @@ function fit_decay_irf(t::AbstractVector{<:Real}, signal::AbstractVector{<:Real}
             break
         end
     end
-    tau_init = max(abs(t[half_idx] - t[peak_idx]) / log(2), 1.0)
+    tau_init = _override(max(abs(t[half_idx] - t[peak_idx]) / log(2), 1.0), tau_user)
 
     function model(p, t_vec)
         A, tau, t0, sigma, offset = p
@@ -130,7 +185,8 @@ end
 # =============================================================================
 
 """
-    fit_exp_decay(trace::KineticTrace; n_exp=1, irf=false, irf_width=0.15, t_start=0.0, t_range=nothing, model=:exponential)
+    fit_exp_decay(trace::KineticTrace; n_exp=1, irf=false, irf_width=0.15, t_start=0.0, t_range=nothing, model=:exponential,
+                  tau0=nothing, amplitude0=nothing, offset0=nothing, beta0=nothing)
 
 Fit an exponential decay model to a `KineticTrace`.
 
@@ -143,27 +199,53 @@ Fit an exponential decay model to a `KineticTrace`.
 - `t_range`: Optional (t_min, t_max) to restrict fit region
 - `model`: `:exponential` (default) or `:stretched` — Kohlrausch–Williams–Watts
 
+# Initial guesses
+Initial parameter guesses are estimated from the data. The keywords below
+override individual automatic guesses; any guess not supplied keeps its
+automatic value.
+- `tau0`, `amplitude0`: For `n_exp = 1` a number; for `n_exp > 1` a vector of
+  length `n_exp` whose entries are numbers or `nothing` (`nothing` = keep the
+  automatic guess for that component). `tau0` values must be positive.
+- `offset0`: Constant-offset guess.
+- `beta0`: Stretching-exponent guess in (0, 1] (`model=:stretched` only).
+
 # Returns
 - `n_exp=1`: `ExpDecayFit`
 - `n_exp>1`: `MultiexpDecayFit`
 - `model=:stretched`: `StretchedDecayFit`
 """
 function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_width::Float64=0.15,
-                       t_start::Float64=0.0, t_range=nothing, model::Symbol=:exponential)
+                       t_start::Float64=0.0, t_range=nothing, model::Symbol=:exponential,
+                       tau0=nothing, amplitude0=nothing, offset0=nothing, beta0=nothing)
     @assert n_exp >= 1 "n_exp must be at least 1"
+
+    isnothing(beta0) || model === :stretched || throw(ArgumentError(
+        "beta0 only applies to model=:stretched"))
 
     if model === :stretched
         n_exp == 1 || throw(ArgumentError(
             "model=:stretched fits a single stretched component; n_exp must be 1"))
         irf && throw(ArgumentError("model=:stretched does not support IRF convolution"))
-        return _fit_stretched_decay(trace; t_start=t_start, t_range=t_range)
+        beta_user = _scalar_guess(beta0, :beta0; positive=true)
+        isnothing(beta_user) || beta_user <= 1.0 || throw(ArgumentError(
+            "beta0 must be in (0, 1], got $beta_user"))
+        return _fit_stretched_decay(trace; t_start=t_start, t_range=t_range,
+                                    tau0=_guess_vector(tau0, 1, :tau0; positive=true)[1],
+                                    amplitude0=_guess_vector(amplitude0, 1, :amplitude0)[1],
+                                    offset0=_scalar_guess(offset0, :offset0),
+                                    beta0=beta_user)
     end
     model === :exponential || throw(ArgumentError(
         "unknown model: $model (expected :exponential or :stretched)"))
 
+    tau_user = _guess_vector(tau0, n_exp, :tau0; positive=true)
+    amp_user = _guess_vector(amplitude0, n_exp, :amplitude0)
+    offset_user = _scalar_guess(offset0, :offset0)
+
     if n_exp > 1
         return _fit_multiexp_decay(trace; n_exp=n_exp, irf=irf, irf_width=irf_width,
-                                   t_start=t_start, t_range=t_range)
+                                   t_start=t_start, t_range=t_range,
+                                   tau0=tau_user, amplitude0=amp_user, offset0=offset_user)
     end
 
     t = trace.time
@@ -177,7 +259,8 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
     end
 
     if irf
-        return fit_decay_irf(t, signal; sigma_init=irf_width)
+        return fit_decay_irf(t, signal; sigma_init=irf_width,
+                             tau0=tau_user[1], amplitude0=amp_user[1], offset0=offset_user)
     else
         mask = t .>= t_start
         count(mask) >= 5 || throw(ArgumentError(
@@ -189,15 +272,15 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
         peak_val = signal_type == :esa ? maximum(signal_fit) : minimum(signal_fit)
 
         n_end = max(1, min(10, length(signal_fit) ÷ 4))
-        offset0 = mean(signal_fit[end-n_end+1:end])
+        offset_init = _override(mean(signal_fit[end-n_end+1:end]), offset_user)
 
-        A0 = peak_val - offset0
-        tau0 = (t_fit[end] - t_fit[1]) / 3.0
+        A_init = _override(peak_val - offset_init, amp_user[1])
+        tau_init = _override((t_fit[end] - t_fit[1]) / 3.0, tau_user[1])
 
         # CurveFitModels single_exponential on the t_start-shifted axis,
         # mirroring the t-shift + n_exponentials approach of the multi-exp path
         t_shifted = t_fit .- t_start
-        prob = NonlinearCurveFitProblem(single_exponential, [A0, tau0, offset0],
+        prob = NonlinearCurveFitProblem(single_exponential, [A_init, tau_init, offset_init],
                                         t_shifted, signal_fit)
         sol = solve(prob)
 
@@ -215,7 +298,8 @@ end
 # Stretched-exponential fitting (internal)
 # =============================================================================
 
-function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range=nothing)
+function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range=nothing,
+                              tau0=nothing, amplitude0=nothing, offset0=nothing, beta0=nothing)
     t = trace.time
     sig = trace.signal
 
@@ -236,16 +320,17 @@ function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range
     signal_type = first(_detect_signal_type(signal_fit))
     peak_val = signal_type == :esa ? maximum(signal_fit) : minimum(signal_fit)
     n_end = max(1, min(10, length(signal_fit) ÷ 4))
-    offset0 = mean(signal_fit[end-n_end+1:end])
-    A0 = peak_val - offset0
-    tau0 = (t_fit[end] - t_fit[1]) / 3.0
+    offset_init = _override(mean(signal_fit[end-n_end+1:end]), offset0)
+    A_init = _override(peak_val - offset_init, amplitude0)
+    tau_init = _override((t_fit[end] - t_fit[1]) / 3.0, tau0)
+    beta_init = _override(0.8, beta0)
 
     function model(p, tv)
         A, tau, beta, offset = p
         return stretched_exponential([A, abs(tau), clamp(beta, 0.05, 1.0), offset], tv)
     end
 
-    prob = NonlinearCurveFitProblem(model, [A0, tau0, 0.8, offset0], t_fit, signal_fit)
+    prob = NonlinearCurveFitProblem(model, [A_init, tau_init, beta_init, offset_init], t_fit, signal_fit)
     sol = solve(prob)
     A, tau, beta, offset = coef(sol)
 
@@ -262,7 +347,12 @@ end
 # =============================================================================
 
 function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_width::Float64,
-                             t_start::Float64, t_range)
+                             t_start::Float64, t_range,
+                             tau0=nothing, amplitude0=nothing, offset0=nothing)
+    tau_user = _guess_vector(tau0, n_exp, :tau0; positive=true)
+    amp_user = _guess_vector(amplitude0, n_exp, :amplitude0)
+    offset_user = _scalar_guess(offset0, :offset0)
+
     t = trace.time
     signal = trace.signal
 
@@ -288,9 +378,9 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
     peak_val = signal_type == :esa ? maximum(signal_fit) : minimum(signal_fit)
 
     n_end = max(1, min(10, length(signal_fit) ÷ 4))
-    offset0 = mean(signal_fit[end-n_end+1:end])
+    offset_init = _override(mean(signal_fit[end-n_end+1:end]), offset_user)
 
-    half_val = (peak_val + offset0) / 2
+    half_val = (peak_val + offset_init) / 2
     half_idx = findfirst(i -> begin
         if signal_type == :esa
             signal_fit[i] <= half_val
@@ -315,11 +405,16 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
         end
     end
 
-    total_amp = peak_val - offset0
+    total_amp = peak_val - offset_init
     amps_init = fill(total_amp / n_exp, n_exp)
 
+    for i in 1:n_exp
+        isnothing(tau_user[i]) || (taus_init[i] = tau_user[i])
+        isnothing(amp_user[i]) || (amps_init[i] = amp_user[i])
+    end
+
     if irf
-        p0 = vcat(taus_init, amps_init, [0.0, irf_width, offset0])
+        p0 = vcat(taus_init, amps_init, [0.0, irf_width, offset_init])
 
         function multiexp_irf_model(p, t_vec)
             # @views: parameter slices are hot-loop reads, never mutated
@@ -356,7 +451,7 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
             push!(p0, amps_init[i])
             push!(p0, taus_init[i])
         end
-        push!(p0, offset0)
+        push!(p0, offset_init)
 
         t_shifted = t_fit .- t_fit[1]
 
