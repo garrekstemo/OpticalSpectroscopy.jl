@@ -643,6 +643,28 @@ Random.seed!(42)
         @test_throws ArgumentError initial_peak_guesses(Float64[], Float64[])
         @test_throws ArgumentError initial_peak_guesses(x[1:3], y[1:3])
         @test_throws ArgumentError initial_peak_guesses(x, y[1:10])
+
+        # A custom lineshape has no inferable parameter layout, so automatic
+        # guesses are refused up front — but fit_peaks still fits it when the
+        # caller supplies p0 themselves.
+        custom_peak(p, x) = @. p[1] / (1 + ((x - p[2]) / p[3])^2)
+        err = try
+            initial_peak_guesses(x, y; n_peaks=1, model=custom_peak)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("known lineshape", err.msg)
+
+        # custom_peak has the same form as the two-peak generator above, so a
+        # p0 covering both peaks recovers them; parameters fall back to
+        # positional names since the layout is not in the model table.
+        custom_fit = fit_peaks(x, y; n_peaks=2, model=custom_peak,
+                               p0=[0.5, 2020.0, 8.0, 0.3, 2080.0, 6.0, 0.01, 0.0])
+        @test custom_fit[1].params == [:p1, :p2, :p3]
+        @test custom_fit[1].model == "custom_peak"
+        @test custom_fit.r_squared > 0.99
     end
 
     @testset "MultiPeakFitResult indexing and iteration" begin
