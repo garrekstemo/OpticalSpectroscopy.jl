@@ -8,7 +8,14 @@ module OpticalSpectroscopy
 
 # Dependencies
 using CurveFit
-import CurveFit: residuals, predict, fitted
+using CommonSolve: solve
+using NonlinearSolveFirstOrder: LevenbergMarquardt
+import StatsAPI: coef, residuals, predict, fitted, stderror, confint, rss, nobs
+
+# CurveFit v1.11's default poly-algorithm can stall far from the optimum yet
+# report StalledSuccess (so isconverged is true); all internal solves therefore
+# pass Levenberg–Marquardt explicitly.
+const _FIT_ALG = LevenbergMarquardt()
 using CurveFitModels
 using Statistics
 using LinearAlgebra

@@ -138,7 +138,7 @@ function fit_decay_irf(t::AbstractVector{<:Real}, signal::AbstractVector{<:Real}
     p0 = [A_init, tau_init, t0_init, sigma_init, offset_init]
 
     prob = NonlinearCurveFitProblem(model, p0, t, signal)
-    sol = solve(prob)
+    sol = solve(prob, _FIT_ALG)
 
     A, tau, t0, sigma, offset = coef(sol)
     tau = abs(tau)
@@ -282,7 +282,7 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
         t_shifted = t_fit .- t_start
         prob = NonlinearCurveFitProblem(single_exponential, [A_init, tau_init, offset_init],
                                         t_shifted, signal_fit)
-        sol = solve(prob)
+        sol = solve(prob, _FIT_ALG)
 
         A, tau, offset = coef(sol)
         tau = abs(tau)
@@ -331,7 +331,7 @@ function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range
     end
 
     prob = NonlinearCurveFitProblem(model, [A_init, tau_init, beta_init, offset_init], t_fit, signal_fit)
-    sol = solve(prob)
+    sol = solve(prob, _FIT_ALG)
     A, tau, beta, offset = coef(sol)
 
     beta_c = clamp(beta, 0.05, 1.0)
@@ -435,7 +435,7 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
         end
 
         prob = NonlinearCurveFitProblem(multiexp_irf_model, p0, t_fit, signal_fit)
-        sol = solve(prob)
+        sol = solve(prob, _FIT_ALG)
         p_opt = coef(sol)
 
         taus_fit = abs.(p_opt[1:n_exp])
@@ -456,7 +456,7 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
         t_shifted = t_fit .- t_fit[1]
 
         prob = NonlinearCurveFitProblem(model, p0, t_shifted, signal_fit)
-        sol = solve(prob)
+        sol = solve(prob, _FIT_ALG)
         p_opt = coef(sol)
 
         amps_fit = Float64[]
@@ -594,7 +594,7 @@ function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float
     end
 
     prob = NonlinearCurveFitProblem(global_model, p0, x_all, y_all)
-    sol = solve(prob)
+    sol = solve(prob, _FIT_ALG)
     p_opt = coef(sol)
 
     # Extract results
@@ -1044,7 +1044,7 @@ function fit_ta_spectrum(spec::Spectrum;
 
     composite = _build_ta_model(fns, signs, npps, fit_offset)
     prob = NonlinearCurveFitProblem(composite, p0_use, ν, y)
-    sol = solve(prob)
+    sol = solve(prob, _FIT_ALG)
     p_opt = coef(sol)
 
     ta_peaks = TAPeak[]

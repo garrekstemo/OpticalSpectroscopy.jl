@@ -1,20 +1,23 @@
 name = "OpticalSpectroscopy"
 uuid = "f1436f7a-66ba-4269-a153-8996db8f0853"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Garrek Stemo <8449000+garrekstemo@users.noreply.github.com>"]
 
 [deps]
+CommonSolve = "38540f10-b2f7-11e9-35d8-d573e4eb0ff2"
 CurveFit = "5a033b19-8c74-5913-a970-47c3779ef25c"
 CurveFitModels = "a3c2e87f-4d91-4e5b-9f3a-7c8b6d2e1f0a"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
 JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+NonlinearSolveFirstOrder = "5959db7a-ea39-4486-b5fe-2dd0bf03d60d"
 Peaks = "18e31ff7-3703-566c-8e60-38913d67486b"
 PhysicalConstants = "5ad8b20f-a522-5ce9-bfc9-ddf1d5bda6ab"
 SavitzkyGolay = "c4bf5708-b6a6-4fbe-bcd0-6850ed671584"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [weakdeps]
@@ -25,18 +28,21 @@ OpticalSpectroscopyMakieExt = "Makie"
 
 [compat]
 Aqua = "0.8"
-CurveFit = "1.10"
+CommonSolve = "0.2"
+CurveFit = "1.11"
 CurveFitModels = "0.1"
 Interpolations = "0.16"
 JSON = "1"
 LinearAlgebra = "1"
 Makie = "0.24"
+NonlinearSolveFirstOrder = "2"
 Peaks = "0.6"
 PhysicalConstants = "0.2"
 SavitzkyGolay = "0.9"
 SparseArrays = "1"
 SpecialFunctions = "2"
 Statistics = "1"
+StatsAPI = "1"
 Unitful = "1"
 julia = "1.10"
 

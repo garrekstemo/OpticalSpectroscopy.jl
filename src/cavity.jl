@@ -288,7 +288,7 @@ wavenumber(r::CavityFitResult) = r._nu
     predict(result::CavityFitResult, nu)
 
 Return fitted transmittance on the original wavenumber grid, or on a
-custom wavenumber array `nu`. Extends `CurveFit.predict`.
+custom wavenumber array `nu`. Extends `StatsAPI.predict`.
 """
 predict(result::CavityFitResult) = predict(result, result._nu)
 
@@ -305,7 +305,7 @@ end
     residuals(result::CavityFitResult)
 
 Return residuals (data - fit) on the original wavenumber grid.
-Extends `CurveFit.residuals`.
+Extends `StatsAPI.residuals`.
 """
 residuals(result::CavityFitResult) = result._T_data .- predict(result)
 
@@ -622,7 +622,7 @@ function fit_cavity_spectrum(nu::AbstractVector, T_data::AbstractVector;
     end
 
     prob = NonlinearCurveFitProblem(model, p0, nu, T_data)
-    sol = solve(prob)
+    sol = solve(prob, _FIT_ALG)
     c = coef(sol)
 
     # Extract fitted parameters
@@ -758,7 +758,7 @@ function fit_dispersion(lp_angles::AbstractVector, lp_positions::AbstractVector,
     end
 
     prob = NonlinearCurveFitProblem(model, p0, x, y_data)
-    sol = solve(prob)
+    sol = solve(prob, _FIT_ALG)
     c = coef(sol)
     errs = stderror(sol)
 
