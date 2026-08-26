@@ -724,7 +724,7 @@ function _oke_gaussian_t0(t, col, span)
     σ_init = max(n_half * dt_mean / FWHM_FACTOR, dt_mean)
 
     sol = try
-        solve(NonlinearCurveFitProblem(gaussian, [A_init, t[i_pk], σ_init, y0_init], t, col))
+        solve(NonlinearCurveFitProblem(gaussian, [A_init, t[i_pk], σ_init, y0_init], t, col), _FIT_ALG)
     catch
         return nothing
     end

@@ -277,7 +277,7 @@ function fit_peaks(x::AbstractVector, y::AbstractVector;
     composite = _build_multipeak_model(model, n_peaks, baseline_order, npp, x_mid, x_range;
                                        x_cache=x_f)
     prob = NonlinearCurveFitProblem(composite, p0_use, x_f, y_f)
-    sol = solve(prob)
+    sol = solve(prob, _FIT_ALG)
 
     p = coef(sol)
     p_err = stderror(sol)
