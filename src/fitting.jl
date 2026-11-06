@@ -36,6 +36,34 @@ end
 # From fitted values (e.g., for per-trace R² in global fitting)
 _rsquared(y_data, y_fit::AbstractVector) = _rsquared(y_data, sum((y_data .- y_fit).^2))
 
+# Drop samples whose time or signal is not finite. `correct_chirp` fills
+# delays shifted out of the measured window with NaN, and a fit, or an offset
+# guess taken from a mean, must never see them.
+function _finite_samples(t, signal)
+    keep = isfinite.(t) .& isfinite.(signal)
+    n = count(keep)
+    n >= 5 || throw(ArgumentError(
+        "fit region contains $n finite points; need at least 5"))
+    all(keep) && return (collect(Float64, t), collect(Float64, signal))
+    return (collect(Float64, t[keep]), collect(Float64, signal[keep]))
+end
+
+# Fit window for the non-IRF decay models: the points inside `t_range` (when
+# given) that lie at or after the decay origin `t_start`. Every non-IRF model
+# is evaluated on `t - t_start`, so the amplitude is the value at `t_start`
+# in all of them, and a window that starts before time zero never moves the
+# decay origin (a stretched exponential is not shift-invariant).
+function _decay_window(t, signal, t_start, t_range)
+    mask = t .>= t_start
+    if !isnothing(t_range)
+        t_min, t_max = t_range
+        mask .&= (t .>= t_min) .& (t .<= t_max)
+    end
+    count(mask) >= 5 || throw(ArgumentError(
+        "fit region contains $(count(mask)) points; need at least 5"))
+    return t[mask], signal[mask]
+end
+
 function _detect_signal_type(signal)
     max_val = maximum(signal)
     min_val = minimum(signal)
@@ -108,6 +136,7 @@ function fit_decay_irf(t::AbstractVector{<:Real}, signal::AbstractVector{<:Real}
     amp_user = _scalar_guess(amplitude0, :amplitude0)
     offset_user = _scalar_guess(offset0, :offset0)
 
+    t, signal = _finite_samples(t, signal)
     signal_type, peak_val, peak_idx = _detect_signal_type(signal)
 
     t0_init = t[peak_idx]
@@ -147,7 +176,7 @@ function fit_decay_irf(t::AbstractVector{<:Real}, signal::AbstractVector{<:Real}
     # data − fit, computed explicitly: CurveFit's residuals(sol) convention
     # has flipped sign between releases, so it is never trusted here.
     return ExpDecayFit(A, tau, t0, sigma, offset, signal_type,
-                       signal .- fitted(sol), _rsquared(signal, rss(sol)))
+                       signal .- fitted(sol), _rsquared(signal, rss(sol)), t)
 end
 
 # Pulse width estimation (FWHM_FACTOR lives in units.jl)
@@ -195,9 +224,19 @@ Fit an exponential decay model to a `KineticTrace`.
 - `n_exp`: Number of exponential components (default 1)
 - `irf`: Include IRF convolution (default false)
 - `irf_width`: Initial guess for IRF σ in ps (default 0.15)
-- `t_start`: Start time for fitting when irf=false (default 0.0)
-- `t_range`: Optional (t_min, t_max) to restrict fit region
+- `t_start`: Decay origin (time zero) for the fits without IRF (default 0.0).
+  Only points with `t ≥ t_start` are fitted, every model is evaluated on
+  `t - t_start`, and the amplitude is the value at `t_start` — the same
+  definition for one, several and stretched exponentials. Put time zero at
+  the excitation (for example with a time-zero correction) before fitting a
+  trace whose axis starts elsewhere, such as a raw streak sweep.
+- `t_range`: Optional (t_min, t_max) to restrict the fit region. It never
+  moves the decay origin; with `irf=false` it is intersected with `t ≥ t_start`.
 - `model`: `:exponential` (default) or `:stretched` — Kohlrausch–Williams–Watts
+
+Samples whose time or signal is not finite (for example the NaN edges left by
+[`correct_chirp`](@ref)) are dropped before fitting. The fitted sample times
+are returned in the result's `time` field, aligned with `residuals`.
 
 # Initial guesses
 Initial parameter guesses are estimated from the data. The keywords below
@@ -248,25 +287,19 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
                                    tau0=tau_user, amplitude0=amp_user, offset0=offset_user)
     end
 
-    t = trace.time
-    signal = trace.signal
-
-    if !isnothing(t_range)
-        t_min, t_max = t_range
-        mask = (t .>= t_min) .& (t .<= t_max)
-        t = t[mask]
-        signal = signal[mask]
-    end
+    t, signal = _finite_samples(trace.time, trace.signal)
 
     if irf
+        if !isnothing(t_range)
+            t_min, t_max = t_range
+            mask = (t .>= t_min) .& (t .<= t_max)
+            t = t[mask]
+            signal = signal[mask]
+        end
         return fit_decay_irf(t, signal; sigma_init=irf_width,
                              tau0=tau_user[1], amplitude0=amp_user[1], offset0=offset_user)
     else
-        mask = t .>= t_start
-        count(mask) >= 5 || throw(ArgumentError(
-            "fit region contains $(count(mask)) points; need at least 5"))
-        t_fit = t[mask]
-        signal_fit = signal[mask]
+        t_fit, signal_fit = _decay_window(t, signal, t_start, t_range)
 
         signal_type = first(_detect_signal_type(signal))
         peak_val = signal_type == :esa ? maximum(signal_fit) : minimum(signal_fit)
@@ -289,7 +322,8 @@ function fit_exp_decay(trace::KineticTrace; n_exp::Int=1, irf::Bool=false, irf_w
 
         return ExpDecayFit(
             A, tau, t_start, NaN, offset,
-            signal_type, signal_fit .- fitted(sol), _rsquared(signal_fit, rss(sol))
+            signal_type, signal_fit .- fitted(sol), _rsquared(signal_fit, rss(sol)),
+            t_fit
         )
     end
 end
@@ -300,22 +334,15 @@ end
 
 function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range=nothing,
                               tau0=nothing, amplitude0=nothing, offset0=nothing, beta0=nothing)
-    t = trace.time
-    sig = trace.signal
-
-    if !isnothing(t_range)
-        mask = (t .>= t_range[1]) .& (t .<= t_range[2])
-        origin = float(t_range[1])
-    else
-        mask = t .>= t_start
-        origin = t_start
-    end
-    count(mask) >= 5 || throw(ArgumentError(
-        "fit region contains $(count(mask)) points; need at least 5"))
-
-    t_fit = t[mask] .- origin
+    t, sig = _finite_samples(trace.time, trace.signal)
+    # The decay origin is t_start, never the window start: a stretched
+    # exponential is not shift-invariant, so a window beginning before time
+    # zero must not move the origin (it used to, and a pure exponential with
+    # τ = 50 then fitted as τ = 2.3, A = −0.84).
+    origin = t_start
+    t_win, signal_fit = _decay_window(t, sig, t_start, t_range)
+    t_fit = t_win .- origin
     t_fit = max.(t_fit, eps(Float64))  # avoid NaN gradient of (t/τ)^β at t = 0
-    signal_fit = sig[mask]
 
     signal_type = first(_detect_signal_type(signal_fit))
     peak_val = signal_type == :esa ? maximum(signal_fit) : minimum(signal_fit)
@@ -339,7 +366,8 @@ function _fit_stretched_decay(trace::KineticTrace; t_start::Float64=0.0, t_range
     beta_c >= 0.999 && @warn "stretched fit: β converged to the upper clamp (1.0); consider model=:exponential"
 
     return StretchedDecayFit(A, abs(tau), beta_c, origin, offset, signal_type,
-                             signal_fit .- fitted(sol), _rsquared(signal_fit, rss(sol)))
+                             signal_fit .- fitted(sol), _rsquared(signal_fit, rss(sol)),
+                             t_win)
 end
 
 # =============================================================================
@@ -353,33 +381,38 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
     amp_user = _guess_vector(amplitude0, n_exp, :amplitude0)
     offset_user = _scalar_guess(offset0, :offset0)
 
-    t = trace.time
-    signal = trace.signal
-
-    if !isnothing(t_range)
-        t_min, t_max = t_range
-        mask = (t .>= t_min) .& (t .<= t_max)
-        t = t[mask]
-        signal = signal[mask]
-    end
+    t, signal = _finite_samples(trace.time, trace.signal)
 
     if irf
+        if !isnothing(t_range)
+            t_min, t_max = t_range
+            mask = (t .>= t_min) .& (t .<= t_max)
+            t = t[mask]
+            signal = signal[mask]
+        end
+        length(t) >= 5 || throw(ArgumentError(
+            "fit region contains $(length(t)) points; need at least 5"))
         t_fit = t
         signal_fit = signal
     else
-        mask = t .>= t_start
-        count(mask) >= 5 || throw(ArgumentError(
-            "fit region contains $(count(mask)) points; need at least 5"))
-        t_fit = t[mask]
-        signal_fit = signal[mask]
+        t_fit, signal_fit = _decay_window(t, signal, t_start, t_range)
     end
 
-    signal_type = first(_detect_signal_type(signal))
-    peak_val = signal_type == :esa ? maximum(signal_fit) : minimum(signal_fit)
+    signal_type, peak_val, peak_idx = _detect_signal_type(signal_fit)
 
+    # Offset guess. With an IRF the window includes the baseline before time
+    # zero, which is the physical offset (the tail may still hold a slow
+    # component); without one the trace starts at the decay, so use the tail.
     n_end = max(1, min(10, length(signal_fit) ÷ 4))
-    offset_init = _override(mean(signal_fit[end-n_end+1:end]), offset_user)
+    n_edge = max(5, length(signal_fit) ÷ 20)
+    offset_auto = (irf && peak_idx > n_edge) ? mean(signal_fit[1:n_edge]) :
+                  mean(signal_fit[end-n_end+1:end])
+    offset_init = _override(offset_auto, offset_user)
 
+    # Lifetime guess from the half-decay point, searched AFTER the peak (the
+    # single-exponential IRF fit does the same). Searching from the first
+    # point found the pre-zero baseline at once, so every IRF fit started
+    # from τ = 0.1 regardless of the data.
     half_val = (peak_val + offset_init) / 2
     half_idx = findfirst(i -> begin
         if signal_type == :esa
@@ -387,8 +420,9 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
         else
             signal_fit[i] >= half_val
         end
-    end, eachindex(signal_fit))
-    tau_est = isnothing(half_idx) ? (t_fit[end] - t_fit[1]) / 3 : t_fit[half_idx] - t_fit[1]
+    end, peak_idx:length(signal_fit))
+    tau_est = isnothing(half_idx) ? (t_fit[end] - t_fit[peak_idx]) / 3 :
+              (t_fit[peak_idx + half_idx - 1] - t_fit[peak_idx]) / log(2)
     tau_est = max(tau_est, 0.1)
 
     taus_init = Float64[]
@@ -414,7 +448,8 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
     end
 
     if irf
-        p0 = vcat(taus_init, amps_init, [0.0, irf_width, offset_init])
+        # Time zero starts at the signal peak, as in fit_decay_irf, not at 0.
+        p0 = vcat(taus_init, amps_init, [t_fit[peak_idx], irf_width, offset_init])
 
         function multiexp_irf_model(p, t_vec)
             # @views: parameter slices are hot-loop reads, never mutated
@@ -453,7 +488,10 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
         end
         push!(p0, offset_init)
 
-        t_shifted = t_fit .- t_fit[1]
+        # Decay origin at t_start (the same origin as the single-exponential
+        # and stretched fits), so amplitudes mean the same thing in every
+        # non-IRF model and do not change with the number of components.
+        t_shifted = t_fit .- t_start
 
         prob = NonlinearCurveFitProblem(model, p0, t_shifted, signal_fit)
         sol = solve(prob, _FIT_ALG)
@@ -466,7 +504,7 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
             push!(taus_fit, abs(p_opt[2*i]))
         end
         offset = p_opt[end]
-        t0 = t_fit[1]
+        t0 = t_start
         sigma = NaN
     end
 
@@ -484,7 +522,7 @@ function _fit_multiexp_decay(trace::KineticTrace; n_exp::Int, irf::Bool, irf_wid
     return MultiexpDecayFit(
         taus_sorted, amps_sorted,
         t0, sigma, offset,
-        signal_type, signal_fit .- fitted(sol), rsquared
+        signal_type, signal_fit .- fitted(sol), rsquared, t_fit
     )
 end
 
@@ -526,6 +564,13 @@ function fit_global(traces::Vector{KineticTrace}; n_exp::Int=1, irf_width::Float
 
     if isnothing(labels)
         labels = ["Trace $i" for i in 1:n_traces]
+    end
+
+    # Non-finite samples (chirp-correction NaN edges) are dropped per trace.
+    traces = map(traces) do tr
+        tt, ss = _finite_samples(tr.time, tr.signal)
+        length(tt) == length(tr.time) ? tr :
+            KineticTrace(tt, ss; wavelength=tr.wavelength, metadata=tr.metadata)
     end
 
     # Bootstrap initial guesses from individual fits
@@ -728,7 +773,7 @@ end
 
 """
     fit_lifetime_spectrum(m::TimeResolvedMatrix; n_exp=1, nbins=32,
-                          t_range=nothing, min_signal=0.0) -> LifetimeSpectrumResult
+                          t_start=0.0, t_range=nothing, min_signal=0.0) -> LifetimeSpectrumResult
 
 Fit an exponential decay in each of `nbins` equal-width wavelength bins.
 
@@ -740,11 +785,12 @@ Each bin's columns are averaged into a kinetic trace and fitted with
 - `m`: time × wavelength matrix
 - `n_exp`: exponential components per bin fit (default 1)
 - `nbins`: number of equal-width wavelength bins (default 32)
+- `t_start`: decay origin passed to `fit_exp_decay` (default 0.0)
 - `t_range`: optional `(t_lo, t_hi)` fit window passed to `fit_exp_decay`
 - `min_signal`: skip bins whose peak |signal| is below this (default 0.0 = fit all)
 """
 function fit_lifetime_spectrum(m::TimeResolvedMatrix; n_exp::Int=1, nbins::Int=32,
-                               t_range=nothing, min_signal::Real=0.0)
+                               t_start::Real=0.0, t_range=nothing, min_signal::Real=0.0)
     nbins >= 1 || throw(ArgumentError("nbins must be >= 1, got $nbins"))
     n_exp >= 1 || throw(ArgumentError("n_exp must be >= 1, got $n_exp"))
     wl_lo, wl_hi = extrema(m.wavelength)
@@ -763,12 +809,13 @@ function fit_lifetime_spectrum(m::TimeResolvedMatrix; n_exp::Int=1, nbins::Int=3
         isempty(cols) && continue
         centers[i] = mean(view(m.wavelength, cols))
         sig = vec(mean(view(m.data, :, cols), dims=2))
-        maximum(abs, sig) < min_signal && continue
+        finite = filter(isfinite, sig)
+        (isempty(finite) || maximum(abs, finite) < min_signal) && continue
 
         trace = KineticTrace(copy(m.time), sig;
                              wavelength=centers[i], metadata=copy(m.metadata))
         fit = try
-            fit_exp_decay(trace; n_exp=n_exp, t_range=t_range)
+            fit_exp_decay(trace; n_exp=n_exp, t_start=Float64(t_start), t_range=t_range)
         catch e
             e isa InterruptException && rethrow()
             continue
@@ -940,7 +987,7 @@ function _ta_initial_guesses(ν, y, peak_specs, signs, npps, fit_offset)
             pk = neg_peaks[neg_idx]
         end
 
-        push!(p0, pk.prominence)
+        push!(p0, _amplitude_guess(pk.prominence, pk.width, fn))
         push!(p0, pk.position)
         push!(p0, _width_guess(pk.width, fn))
 

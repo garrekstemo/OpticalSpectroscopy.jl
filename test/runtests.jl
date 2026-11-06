@@ -1318,19 +1318,21 @@ Random.seed!(42)
         # Scalar: R = 1 - T
         @test transmittance_to_reflectance(0.2) ≈ 0.8
         @test transmittance_to_reflectance(20.0; percent=true) ≈ 0.8
-        # Scalar: R = 1 - 10^(-A)
-        @test absorbance_to_reflectance(0.0) ≈ 0.0
-        @test absorbance_to_reflectance(1.0) ≈ 0.9
+        # Scalar: R = 10^(-A), the inverse of reflectance_to_absorbance
+        @test absorbance_to_reflectance(0.0) ≈ 1.0
+        @test absorbance_to_reflectance(1.0) ≈ 0.1
 
         # Vector
         T = [0.1, 0.5, 0.9]
         R = transmittance_to_reflectance(T)
         @test R ≈ [0.9, 0.5, 0.1]
         A = [0.0, 1.0, 2.0]
-        @test absorbance_to_reflectance(A) ≈ [0.0, 0.9, 0.99]
+        @test absorbance_to_reflectance(A) ≈ [1.0, 0.1, 0.01]
 
-        # Consistency: absorbance route equals transmittance route
-        @test absorbance_to_reflectance(1.0) ≈ transmittance_to_reflectance(absorbance_to_transmittance(1.0))
+        # Round trip R -> A -> R is the identity
+        for r in (0.1, 0.3, 0.7)
+            @test absorbance_to_reflectance(reflectance_to_absorbance(r)) ≈ r
+        end
     end
 
     @testset "Spectroscopy utilities - smooth_data" begin
@@ -3199,12 +3201,12 @@ Random.seed!(42)
             result_noisy = estimate_snr(y_very_noisy)
             @test result_noisy.snr < result.snr
 
-            # Edge case: too few points
-            @test_throws ArgumentError estimate_snr([1.0, 2.0, 3.0])
+            # Edge case: too few points (the ±2 DER_SNR stencil needs 5)
+            @test_throws ArgumentError estimate_snr([1.0, 2.0, 3.0, 4.0])
 
-            # Exactly 4 points should work
-            result_4 = estimate_snr([1.0, 2.0, 3.0, 4.0])
-            @test result_4 isa NamedTuple
+            # Exactly 5 points should work
+            result_5 = estimate_snr([1.0, 2.0, 3.0, 4.0, 5.0])
+            @test result_5 isa NamedTuple
         end
 
     end  # Spectral Math
@@ -4059,10 +4061,11 @@ Random.seed!(42)
         @test isapprox(fit_n.tau, 5.0; rtol=0.15)
         @test isapprox(fit_n.beta, 0.7; rtol=0.15)
 
-        # non-zero fit origin via t_range
+        # non-zero fit origin: t_start sets it, t_range only selects points
+        # (a window never moves the origin of a stretched exponential)
         sig_shift = [ti < 10.0 ? 1.05 : exp(-((ti - 10.0) / 5.0)^0.7) + 0.05 for ti in t]
         fit_s = fit_exp_decay(KineticTrace(t, sig_shift; wavelength=550.0);
-                              model=:stretched, t_range=(10.0, 50.0))
+                              model=:stretched, t_start=10.0, t_range=(10.0, 50.0))
         @test fit_s.t0 == 10.0
         @test isapprox(fit_s.tau, 5.0; rtol=0.05)
         @test isapprox(fit_s.beta, 0.7; rtol=0.05)
@@ -4111,4 +4114,5 @@ Random.seed!(42)
     include("test_cavity.jl")
     include("tokens.jl")
     include("test_audit_fixes.jl")
+    include("test_physics_review.jl")
 end

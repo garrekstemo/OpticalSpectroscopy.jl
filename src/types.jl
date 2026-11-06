@@ -423,8 +423,12 @@ Result of exponential decay fitting with instrument response function convolutio
 
 # Fields
 - `amplitude`, `tau`, `t0`, `sigma`, `offset`, `signal_type`, `residuals`, `rsquared`
+- `time`: the fitted sample times, aligned with `residuals` (empty when the
+  result was rebuilt without them)
 
-`residuals` follow the package-wide convention `data − fit`.
+`residuals` follow the package-wide convention `data − fit`. Without an IRF
+(`sigma = NaN`) `t0` is the decay origin `t_start` and `amplitude` is the
+value at `t0`; with an IRF `t0` is the fitted time zero.
 """
 struct ExpDecayFit <: AbstractDecayFit
     amplitude::Float64
@@ -435,7 +439,11 @@ struct ExpDecayFit <: AbstractDecayFit
     signal_type::Symbol
     residuals::Vector{Float64}
     rsquared::Float64
+    time::Vector{Float64}
 end
+
+ExpDecayFit(amplitude, tau, t0, sigma, offset, signal_type, residuals, rsquared) =
+    ExpDecayFit(amplitude, tau, t0, sigma, offset, signal_type, residuals, rsquared, Float64[])
 
 _taus(f::ExpDecayFit) = [f.tau]
 _amplitudes(f::ExpDecayFit) = [f.amplitude]
@@ -474,12 +482,15 @@ Result of multi-exponential decay fitting (n >= 1 components).
 - `taus::Vector{Float64}`: Time constants (sorted fast->slow)
 - `amplitudes::Vector{Float64}`: Corresponding amplitudes
 - `t0`, `sigma`, `offset`, `signal_type`, `residuals`, `rsquared`
+- `time`: the fitted sample times, aligned with `residuals`
 
-`residuals` follow the package-wide convention `data − fit`.
+`residuals` follow the package-wide convention `data − fit`. Without an IRF
+`t0` is the decay origin `t_start` and every amplitude is the value of its
+component at `t0`, the same definition as the single-exponential fit.
 
 # Derived properties
 - `n_exp(fit)`: Number of exponential components
-- `weights(fit)`: Relative amplitude weights (normalized to 100%)
+- `weights(fit)`: Relative amplitude weights `|Aᵢ| / Σ|Aⱼ|` (fractions summing to 1)
 """
 struct MultiexpDecayFit <: AbstractDecayFit
     taus::Vector{Float64}
@@ -490,7 +501,11 @@ struct MultiexpDecayFit <: AbstractDecayFit
     signal_type::Symbol
     residuals::Vector{Float64}
     rsquared::Float64
+    time::Vector{Float64}
 end
+
+MultiexpDecayFit(taus, amplitudes, t0, sigma, offset, signal_type, residuals, rsquared) =
+    MultiexpDecayFit(taus, amplitudes, t0, sigma, offset, signal_type, residuals, rsquared, Float64[])
 
 _taus(f::MultiexpDecayFit) = f.taus
 _amplitudes(f::MultiexpDecayFit) = f.amplitudes
@@ -546,11 +561,12 @@ Result of stretched-exponential (Kohlrausch–Williams–Watts) decay fitting:
 - `amplitude::Float64`
 - `tau::Float64`: Characteristic time constant
 - `beta::Float64`: Stretching exponent (0 < β ≤ 1)
-- `t0::Float64`: Fit-region time origin
+- `t0::Float64`: Decay origin (`t_start` of the fit, time zero)
 - `offset::Float64`
 - `signal_type::Symbol`: `:esa` (positive) or `:gsb` (negative)
 - `residuals::Vector{Float64}`: `data − fit` (package-wide convention)
 - `rsquared::Float64`
+- `time::Vector{Float64}`: the fitted sample times, aligned with `residuals`
 
 See [`mean_lifetime`](@ref) for ⟨τ⟩ = (τ/β)·Γ(1/β).
 """
@@ -563,7 +579,11 @@ struct StretchedDecayFit <: AbstractDecayFit
     signal_type::Symbol
     residuals::Vector{Float64}
     rsquared::Float64
+    time::Vector{Float64}
 end
+
+StretchedDecayFit(amplitude, tau, beta, t0, offset, signal_type, residuals, rsquared) =
+    StretchedDecayFit(amplitude, tau, beta, t0, offset, signal_type, residuals, rsquared, Float64[])
 
 _taus(f::StretchedDecayFit) = [f.tau]
 _amplitudes(f::StretchedDecayFit) = [f.amplitude]

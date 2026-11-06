@@ -13,21 +13,45 @@ Unified multi-peak fitting that works on any spectrum type.
 #   nparams         parameters per peak
 #   params          parameter names, fit-vector order
 #   width_scale     width guess = width_scale · detected FWHP
-#     (lorentzian: Γ is the FWHM; gaussian/voigt: σ is the std dev;
-#      pseudo_voigt: σ is the HWHM of both components; fano: Γ ~ width)
+#     (lorentzian: Γ is the FWHM; gaussian: σ is the std dev;
+#      pseudo_voigt: σ is the HWHM of both components; fano: Γ is the
+#      half width in the Lorentzian limit; voigt: see below)
 #   fourth_p0       initial guess for the 4th parameter, given the detected
 #                   FWHP (`nothing` for 3-parameter models)
+#   amp_scale       amplitude guess = amp_scale(fwhp) · detected prominence
+#     (1 where the first parameter is the peak height; pseudo_voigt's first
+#      parameter is the AREA, so the height is divided by the height of the
+#      unit-area profile at the starting width and mixing)
+#
+# Voigt start: the detected FWHP is split equally between the Gaussian and
+# Lorentzian FWHM, w = fwhp / c, where c = (1 + 2.69269 + 2.42843 + 4.47163 +
+# 0.07842 + 1)^(1/5) is Thompson's total-FWHM factor at fG = fL = w. Then
+# σ = w / FWHM_FACTOR and γ = w / 2, so the starting profile has the detected
+# width (σ = fwhp/FWHM_FACTOR with γ = fwhp/4 started 1.29× too wide).
+const _VOIGT_EQUAL_SPLIT = (1 + 2.69269 + 2.42843 + 4.47163 + 0.07842 + 1)^(1 / 5)
+
+# Height of a unit-area pseudo-Voigt (CurveFitModels convention: Gaussian and
+# Lorentzian of common HWHM σ, mixed with η) at its centre.
+_pseudo_voigt_unit_height(sigma, eta) =
+    ((1 - eta) * sqrt(log(2) / π) + eta / π) / sigma
+
 const _MODEL_INFO = IdDict{Function,NamedTuple}(
     lorentzian   => (name="lorentzian",   nparams=3, params=[:amplitude, :center, :fwhm],
-                     width_scale=1.0,             fourth_p0=nothing),
+                     width_scale=1.0,             fourth_p0=nothing,
+                     amp_scale=fwhp -> 1.0),
     gaussian     => (name="gaussian",     nparams=3, params=[:amplitude, :center, :sigma],
-                     width_scale=1 / FWHM_FACTOR, fourth_p0=nothing),
+                     width_scale=1 / FWHM_FACTOR, fourth_p0=nothing,
+                     amp_scale=fwhp -> 1.0),
     pseudo_voigt => (name="pseudo_voigt", nparams=4, params=[:amplitude, :center, :sigma, :mixing],
-                     width_scale=0.5,             fourth_p0=fwhp -> 0.5),
+                     width_scale=0.5,             fourth_p0=fwhp -> 0.5,
+                     amp_scale=fwhp -> 1 / _pseudo_voigt_unit_height(0.5 * fwhp, 0.5)),
     voigt        => (name="voigt",        nparams=4, params=[:amplitude, :center, :sigma, :gamma],
-                     width_scale=1 / FWHM_FACTOR, fourth_p0=fwhp -> fwhp / 4),
+                     width_scale=1 / (_VOIGT_EQUAL_SPLIT * FWHM_FACTOR),
+                     fourth_p0=fwhp -> fwhp / (2 * _VOIGT_EQUAL_SPLIT),
+                     amp_scale=fwhp -> 1.0),
     fano         => (name="fano",         nparams=4, params=[:amplitude, :center, :width, :q],
-                     width_scale=1.0,             fourth_p0=fwhp -> 1.0),
+                     width_scale=0.5,             fourth_p0=fwhp -> 1.0,
+                     amp_scale=fwhp -> 1.0),
 )
 
 # Model name for storage/reporting; unknown models keep their own name (no
@@ -52,6 +76,9 @@ end
 _width_guess(fwhp::Real, model::Function) =
     haskey(_MODEL_INFO, model) ? _MODEL_INFO[model].width_scale * fwhp : fwhp
 
+_amplitude_guess(prominence::Real, fwhp::Real, model::Function) =
+    haskey(_MODEL_INFO, model) ? _MODEL_INFO[model].amp_scale(fwhp) * prominence : prominence
+
 function _peaks_to_p0(detected::Vector{PeakInfo}, x, y, model::Function; baseline_order::Int=1)
     npp = _n_peak_params(model)
     n_peaks = length(detected)
@@ -61,7 +88,7 @@ function _peaks_to_p0(detected::Vector{PeakInfo}, x, y, model::Function; baselin
 
     for (i, pk) in enumerate(detected)
         offset = (i - 1) * npp
-        p0[offset + 1] = pk.prominence
+        p0[offset + 1] = _amplitude_guess(pk.prominence, pk.width, model)
         p0[offset + 2] = pk.position
         if npp >= 3
             p0[offset + 3] = _width_guess(pk.width, model)

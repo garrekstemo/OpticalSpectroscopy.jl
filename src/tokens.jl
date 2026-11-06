@@ -13,7 +13,7 @@ const TECHNIQUES = Set{Symbol}([:ta, :ftir, :raman, :uvvis, :pl, :xrd])
 
 const AXIS_QUANTITIES = Set{Symbol}([
     :wavelength, :wavenumber, :raman_shift, :opd, :two_theta,
-    :time, :energy, :position])
+    :time, :energy, :vibrational_energy, :position])
 
 const SIGNAL_QUANTITIES = Set{Symbol}([
     :absorbance, :transmittance, :reflectance, :single_beam,
@@ -29,6 +29,7 @@ const _QUANTITY_DISPLAY = Dict{Symbol,String}(
     :wavelength       => "Wavelength",
     :wavenumber       => "Wavenumber",
     :raman_shift      => "Raman shift",
+    :vibrational_energy => "Vibrational energy",
     :opd              => "Optical path difference",
     :two_theta        => "2θ",
     :time             => "Time",
