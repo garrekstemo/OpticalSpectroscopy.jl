@@ -192,4 +192,6 @@ plot_fit(result; components=true, baseline=true)
 function plot_fit end
 export plot_fit
 
+include("precompile.jl")
+
 end # module OpticalSpectroscopy
