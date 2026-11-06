@@ -123,7 +123,9 @@
     end
 
     @testset "4.4 Voigt and Fano start at the detected width" begin
-        x = collect(-30.0:0.05:30.0)
+        # Fine grid: the measured width is read off the samples, so the grid
+        # step bounds its error (0.005 on a width of 3.6 is 0.3%).
+        x = collect(-30.0:0.005:30.0)
         y = voigt([1.0, 0.0, 1.0, 1.0], x)
         g = initial_peak_guesses(x, y; n_peaks=1, model=voigt, baseline_order=0)
         sigma0, gamma0 = g.p0[3], g.p0[4]

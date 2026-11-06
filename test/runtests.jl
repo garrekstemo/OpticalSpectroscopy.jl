@@ -4061,10 +4061,11 @@ Random.seed!(42)
         @test isapprox(fit_n.tau, 5.0; rtol=0.15)
         @test isapprox(fit_n.beta, 0.7; rtol=0.15)
 
-        # non-zero fit origin via t_range
+        # non-zero fit origin: t_start sets it, t_range only selects points
+        # (a window never moves the origin of a stretched exponential)
         sig_shift = [ti < 10.0 ? 1.05 : exp(-((ti - 10.0) / 5.0)^0.7) + 0.05 for ti in t]
         fit_s = fit_exp_decay(KineticTrace(t, sig_shift; wavelength=550.0);
-                              model=:stretched, t_range=(10.0, 50.0))
+                              model=:stretched, t_start=10.0, t_range=(10.0, 50.0))
         @test fit_s.t0 == 10.0
         @test isapprox(fit_s.tau, 5.0; rtol=0.05)
         @test isapprox(fit_s.beta, 0.7; rtol=0.05)
