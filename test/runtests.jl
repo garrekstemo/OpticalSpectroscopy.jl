@@ -1318,19 +1318,21 @@ Random.seed!(42)
         # Scalar: R = 1 - T
         @test transmittance_to_reflectance(0.2) ≈ 0.8
         @test transmittance_to_reflectance(20.0; percent=true) ≈ 0.8
-        # Scalar: R = 1 - 10^(-A)
-        @test absorbance_to_reflectance(0.0) ≈ 0.0
-        @test absorbance_to_reflectance(1.0) ≈ 0.9
+        # Scalar: R = 10^(-A), the inverse of reflectance_to_absorbance
+        @test absorbance_to_reflectance(0.0) ≈ 1.0
+        @test absorbance_to_reflectance(1.0) ≈ 0.1
 
         # Vector
         T = [0.1, 0.5, 0.9]
         R = transmittance_to_reflectance(T)
         @test R ≈ [0.9, 0.5, 0.1]
         A = [0.0, 1.0, 2.0]
-        @test absorbance_to_reflectance(A) ≈ [0.0, 0.9, 0.99]
+        @test absorbance_to_reflectance(A) ≈ [1.0, 0.1, 0.01]
 
-        # Consistency: absorbance route equals transmittance route
-        @test absorbance_to_reflectance(1.0) ≈ transmittance_to_reflectance(absorbance_to_transmittance(1.0))
+        # Round trip R -> A -> R is the identity
+        for r in (0.1, 0.3, 0.7)
+            @test absorbance_to_reflectance(reflectance_to_absorbance(r)) ≈ r
+        end
     end
 
     @testset "Spectroscopy utilities - smooth_data" begin
@@ -3199,12 +3201,12 @@ Random.seed!(42)
             result_noisy = estimate_snr(y_very_noisy)
             @test result_noisy.snr < result.snr
 
-            # Edge case: too few points
-            @test_throws ArgumentError estimate_snr([1.0, 2.0, 3.0])
+            # Edge case: too few points (the ±2 DER_SNR stencil needs 5)
+            @test_throws ArgumentError estimate_snr([1.0, 2.0, 3.0, 4.0])
 
-            # Exactly 4 points should work
-            result_4 = estimate_snr([1.0, 2.0, 3.0, 4.0])
-            @test result_4 isa NamedTuple
+            # Exactly 5 points should work
+            result_5 = estimate_snr([1.0, 2.0, 3.0, 4.0, 5.0])
+            @test result_5 isa NamedTuple
         end
 
     end  # Spectral Math
@@ -4111,4 +4113,5 @@ Random.seed!(42)
     include("test_cavity.jl")
     include("tokens.jl")
     include("test_audit_fixes.jl")
+    include("test_physics_review.jl")
 end

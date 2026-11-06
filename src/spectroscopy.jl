@@ -283,11 +283,47 @@ end
 
 function derivative(x::AbstractVector{<:Real}, y::AbstractVector{<:Real};
                     order::Int=1, window::Int=11, poly_order::Int=3)
-    dx = median(diff(collect(x)))
+    xf = collect(Float64, x)
+    if !_is_uniform(xf)
+        # Savitzky-Golay assumes one spacing. A converted axis (nm → eV) is
+        # not uniform, so differentiate on a uniform resampling and map back.
+        xu, yu = _resample_uniform(xf, collect(Float64, y))
+        return _interp_back(xu, derivative(xu, yu; order, window, poly_order), xf)
+    end
+    dx = median(diff(xf))
     # Signed rate: SavitzkyGolay scales by rate^deriv, so a descending axis
     # (dx < 0) flips odd-order derivatives back to the correct dy/dx sign.
     rate = 1.0 / dx
     return _sg_filter(y, window, poly_order, deriv=order, rate=rate).y
+end
+
+# Uniform-grid helpers shared by derivative and kramers_kronig. An axis is
+# "uniform" when every spacing is within 0.1 % of the median spacing.
+function _is_uniform(x::AbstractVector{<:Real})
+    length(x) < 3 && return true
+    d = diff(x)
+    dm = median(d)
+    dm == 0 && return false
+    return all(abs(di - dm) <= 1e-3 * abs(dm) for di in d)
+end
+
+# Linear interpolation of (x, y) onto a uniform grid spanning the same
+# range with the same number of points. x may be descending.
+function _resample_uniform(x::AbstractVector{<:Real}, y::AbstractVector{<:Real})
+    n = length(x)
+    xs = x[1] <= x[end] ? x : reverse(x)
+    ys = x[1] <= x[end] ? y : reverse(y)
+    itp = Interpolations.linear_interpolation(xs, ys, extrapolation_bc=Interpolations.Flat())
+    xu = collect(range(x[1], x[end]; length=n))
+    return xu, itp.(xu)
+end
+
+function _interp_back(xu::AbstractVector{<:Real}, yu::AbstractVector{<:Real},
+                      x::AbstractVector{<:Real})
+    xs = xu[1] <= xu[end] ? xu : reverse(xu)
+    ys = xu[1] <= xu[end] ? yu : reverse(yu)
+    itp = Interpolations.linear_interpolation(xs, ys, extrapolation_bc=Interpolations.Flat())
+    return itp.(x)
 end
 
 """
@@ -464,10 +500,13 @@ result.snr  # ≈ 50
 """
 function estimate_snr(y::AbstractVector{<:Real})
     n = length(y)
-    n >= 4 || throw(ArgumentError("Need at least 4 points to estimate SNR"))
-    noise_arr = similar(y, n - 2)
-    for i in 2:(n - 1)
-        noise_arr[i - 1] = abs(2 * y[i] - y[i - 1] - y[i + 1])
+    n >= 5 || throw(ArgumentError("Need at least 5 points to estimate SNR"))
+    # DER_SNR (Stoehr et al., ADASS XVII, 2008) takes the second difference
+    # over points TWO apart, so noise correlated between neighbouring pixels
+    # (smoothing, oversampling) is not mistaken for signal.
+    noise_arr = similar(y, n - 4)
+    for i in 3:(n - 2)
+        noise_arr[i - 2] = abs(2 * y[i] - y[i - 2] - y[i + 2])
     end
     noise = median(noise_arr) * MAD_TO_SIGMA
     noise = noise / sqrt(6.0)

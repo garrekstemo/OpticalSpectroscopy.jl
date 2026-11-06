@@ -11,7 +11,10 @@ Ohta & Ishida, Appl. Spectrosc. 42, 952 (1988)) for numerical stability without
 requiring FFT.
 
 # Arguments
-- `omega`: Frequency/energy/wavenumber axis (should be uniformly spaced)
+- `omega`: Frequency/energy/wavenumber axis. The Maclaurin formula needs a
+  uniform grid; a non-uniform axis (for example one produced by a nm → eV
+  conversion) is resampled onto a uniform grid of the same length by linear
+  interpolation and the result is interpolated back onto `omega`.
 - `chi`: Input spectrum (imaginary or real part)
 - `type`: `:imag_to_real` (default) or `:real_to_imag`
 
@@ -22,8 +25,15 @@ function kramers_kronig(omega, chi; type=:imag_to_real)
     n == length(omega) || throw(ArgumentError("omega and chi must have the same length"))
     type in (:imag_to_real, :real_to_imag) ||
         throw(ArgumentError("type must be :imag_to_real or :real_to_imag (got $type)"))
-    w = Float64.(omega)
-    f = Float64.(chi)
+    w0 = Float64.(omega)
+    f0 = Float64.(chi)
+    if !_is_uniform(w0)
+        w, f = _resample_uniform(w0, f0)
+        res = kramers_kronig(w, f; type=type)
+        return _interp_back(w, res, w0)
+    end
+    w = w0
+    f = f0
     result = zeros(n)
 
     # Maclaurin formula for the Cauchy principal value (Ohta & Ishida 1988):
@@ -174,7 +184,8 @@ end
     reflectance_to_absorbance(R)
 
 Convert specular reflectance to pseudo-absorbance: A = -log10(R).
-Works on scalars and vectors via broadcasting.
+Works on scalars and vectors via broadcasting. The inverse is
+[`absorbance_to_reflectance`](@ref).
 """
 reflectance_to_absorbance(R) = -log10.(R)
 
@@ -182,7 +193,9 @@ reflectance_to_absorbance(R) = -log10.(R)
     transmittance_to_reflectance(T; percent=false)
 
 Convert transmittance to reflectance for a non-absorbing, non-scattering
-sample: R = 1 - T. Input `T` is fractional (0 to 1); use `percent=true` for
+sample: R = 1 - T. This holds only when nothing is absorbed; for an
+absorbing sample R + T + A_frac = 1 and the reflectance cannot be recovered
+from T alone. Input `T` is fractional (0 to 1); use `percent=true` for
 percent transmittance. Works on scalars and vectors.
 """
 transmittance_to_reflectance(T::Real; percent::Bool=false) = 1.0 - (percent ? T / 100.0 : T)
@@ -192,10 +205,11 @@ transmittance_to_reflectance(T::AbstractVector; percent::Bool=false) =
 """
     absorbance_to_reflectance(A)
 
-Convert absorbance to reflectance via transmittance: R = 1 - 10^(-A).
-Works on scalars and vectors.
+Convert pseudo-absorbance back to specular reflectance: R = 10^(-A), the
+inverse of [`reflectance_to_absorbance`](@ref) (the former `1 - 10^(-A)`
+returned `1 - R` on a round trip). Works on scalars and vectors.
 """
-absorbance_to_reflectance(A::Real) = 1.0 - 10.0^(-A)
+absorbance_to_reflectance(A::Real) = 10.0^(-A)
 absorbance_to_reflectance(A::AbstractVector) = absorbance_to_reflectance.(A)
 
 """

@@ -477,7 +477,8 @@ end
 #   lorentzian    Γ is already the FWHM (param :fwhm)
 #   gaussian      σ is the standard deviation        -> FWHM = 2√(2ln2)·σ
 #   pseudo_voigt  σ is the HWHM of BOTH components   -> FWHM = 2σ
-#   voigt         σ Gaussian std dev, γ Lorentzian HWHM -> Thompson et al. (1987)
+#   voigt         σ Gaussian std dev, γ Lorentzian HWHM -> Thompson et al. (1987),
+#                 the FWHM of the pseudo-Voigt that CurveFitModels.voigt evaluates
 #   fano          asymmetric lineshape, FWHM not well defined -> NaN
 function _peak_fwhm(pk::PeakFitResult)
     if haskey(pk, :fwhm)
@@ -485,16 +486,30 @@ function _peak_fwhm(pk::PeakFitResult)
     elseif pk.model == "pseudo_voigt" && haskey(pk, :sigma)
         return 2 * abs(pk[:sigma].value)
     elseif haskey(pk, :sigma) && haskey(pk, :gamma)
-        # Voigt FWHM approximation (Thompson et al., 1987)
         fwhm_g = abs(pk[:sigma].value) * FWHM_FACTOR
         fwhm_l = 2 * abs(pk[:gamma].value)
-        return 0.5346 * fwhm_l + sqrt(0.2166 * fwhm_l^2 + fwhm_g^2)
+        return (fwhm_g^5 + 2.69269 * fwhm_g^4 * fwhm_l + 2.42843 * fwhm_g^3 * fwhm_l^2 +
+                4.47163 * fwhm_g^2 * fwhm_l^3 + 0.07842 * fwhm_g * fwhm_l^4 + fwhm_l^5)^(1 / 5)
     elseif haskey(pk, :sigma)
         # gaussian (and unknown models exposing :sigma): treat as std dev
         return abs(pk[:sigma].value) * FWHM_FACTOR
     else
         return NaN
     end
+end
+
+# Peak HEIGHT of a fitted peak. The amplitude parameter is the height for
+# every lineshape except pseudo_voigt, whose first parameter is the area
+# (CurveFitModels convention), so the amplitude map would otherwise mix
+# areas and heights depending on the model.
+function _peak_height(pk::PeakFitResult)
+    haskey(pk, :amplitude) || return NaN
+    a = pk[:amplitude].value
+    if pk.model == "pseudo_voigt" && haskey(pk, :sigma) && haskey(pk, :mixing)
+        return a * _pseudo_voigt_unit_height(abs(pk[:sigma].value),
+                                             clamp(pk[:mixing].value, 0.0, 1.0))
+    end
+    return a
 end
 
 """
@@ -672,9 +687,7 @@ function fit_map(m::PLMap;
                     centers[ix, iy, pk_idx] = pk[:center].value
                 end
                 fwhms[ix, iy, pk_idx] = _peak_fwhm(pk)
-                if haskey(pk, :amplitude)
-                    amplitudes[ix, iy, pk_idx] = pk[:amplitude].value
-                end
+                amplitudes[ix, iy, pk_idx] = _peak_height(pk)
             end
         end
     end
